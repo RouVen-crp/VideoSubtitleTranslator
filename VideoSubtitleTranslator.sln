@@ -1,0 +1,16 @@
+﻿
+Microsoft Visual Studio Solution File, Format Version 12.00
+Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "VideoSubtitleTranslator", "VideoSubtitleTranslator\VideoSubtitleTranslator.csproj", "{AD92DAC6-E28C-44E2-834F-F29A0F24E83A}"
+EndProject
+Global
+	GlobalSection(SolutionConfigurationPlatforms) = preSolution
+		Debug|Any CPU = Debug|Any CPU
+		Release|Any CPU = Release|Any CPU
+	EndGlobalSection
+	GlobalSection(ProjectConfigurationPlatforms) = postSolution
+		{AD92DAC6-E28C-44E2-834F-F29A0F24E83A}.Debug|Any CPU.ActiveCfg = Debug|Any CPU
+		{AD92DAC6-E28C-44E2-834F-F29A0F24E83A}.Debug|Any CPU.Build.0 = Debug|Any CPU
+		{AD92DAC6-E28C-44E2-834F-F29A0F24E83A}.Release|Any CPU.ActiveCfg = Release|Any CPU
+		{AD92DAC6-E28C-44E2-834F-F29A0F24E83A}.Release|Any CPU.Build.0 = Release|Any CPU
+	EndGlobalSection
+EndGlobal

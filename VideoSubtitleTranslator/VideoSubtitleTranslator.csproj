@@ -1,0 +1,21 @@
+﻿<Project Sdk="Microsoft.NET.Sdk">
+
+    <PropertyGroup>
+        <OutputType>Exe</OutputType>
+        <TargetFramework>net10.0</TargetFramework>
+        <ImplicitUsings>enable</ImplicitUsings>
+        <Nullable>enable</Nullable>
+        <AssemblyName>VideoSubtitleTranslator</AssemblyName>
+        <RootNamespace>VideoSubtitleTranslator</RootNamespace>
+    </PropertyGroup>
+
+    <ItemGroup>
+        <Content Include="pipeline.config.json" CopyToOutputDirectory="PreserveNewest" />
+        <Content Include="Config/translator.config.json" CopyToOutputDirectory="PreserveNewest" />
+        <Content Include="PythonScripts/subtitler.py" CopyToOutputDirectory="PreserveNewest" />
+        <Content Include="PythonScripts/requirements.txt" CopyToOutputDirectory="PreserveNewest" />
+        <Content Include="scripts/init_python_venv.sh" CopyToOutputDirectory="PreserveNewest" />
+        <Content Include="Prompts/**/*.txt" CopyToOutputDirectory="PreserveNewest" />
+    </ItemGroup>
+
+</Project>

@@ -1,0 +1,44 @@
+{
+  "llm": {
+    "baseUrl": "https://api.deepseek.com/v1/chat/completions",
+    "apiKeyEnv": "DEEPSEEK_API_KEY",
+    "model": "deepseek-chat",
+    "retryCount": 3,
+    "timeoutSeconds": 60,
+    "temperature": 0.2,
+    "maxTokens": 8192
+  },
+  "translation": {
+    "domainHintPrompt": "",
+    "metaRulesMaxCount": 120,
+    "metaRuleMaxChars": 300,
+    "moduleSentenceCount": 4,
+    "contextModuleWindow": 2,
+    "requestDelayMs": 200,
+    "moduleJsonMaxAttempts": 4,
+    "synopsisMaxChars": 12000,
+    "normalizeJsonMaxAttempts": 3,
+    "normalizeWindowSize": 2,
+    "synopsisCompressEveryModules": 3,
+    "proofreadEnabled": true,
+    "proofreadJsonMaxAttempts": 3,
+    "proofreadWindowSize": 2,
+    "proofreadRequestDelayMs": 0
+  },
+  "whisper": {
+    "pythonExecutable": "python3",
+    "model": "turbo",
+    "language": "en",
+    "force": false
+  },
+  "burn": {
+    "enabled": true,
+    "videoEncoder": "h264_nvenc",
+    "qualityPreset": "high",
+    "enforceSourceBitrateFloor": true,
+    "minOutputBitrateKbps": 0
+  },
+  "paths": {
+    "pythonRequirementsPath": "PythonScripts/requirements.txt"
+  }
+}

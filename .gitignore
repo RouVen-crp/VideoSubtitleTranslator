@@ -1,0 +1,42 @@
+# Build outputs
+[Bb]in/
+[Oo]bj/
+[Ll]og/
+[Rr]elease/
+[Dd]ebug/
+artifacts/
+TestResults/
+
+# NuGet
+packages/
+*.nupkg
+*.snupkg
+
+# IDE/editor files
+.idea/
+.vs/
+.vscode/
+*.suo
+*.user
+*.userosscache
+*.sln.docstates
+*.iml
+*_i.c
+*_p.c
+*.rsuser
+riderModule.iml
+_ReSharper.Caches/
+
+# OS files
+.DS_Store
+Thumbs.db
+
+# Python virtual environments and caches
+**/venv/
+**/.venv/
+**/__pycache__/
+**/*.pyc
+
+# Runtime workspace/temp outputs
+**/*.tmp
+**/*.temp
