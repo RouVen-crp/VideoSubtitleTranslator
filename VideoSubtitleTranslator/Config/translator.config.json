@@ -37,8 +37,5 @@
     "qualityPreset": "high",
     "enforceSourceBitrateFloor": true,
     "minOutputBitrateKbps": 0
-  },
-  "paths": {
-    "pythonRequirementsPath": "PythonScripts/requirements.txt"
   }
 }

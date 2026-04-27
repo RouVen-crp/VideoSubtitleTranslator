@@ -38,8 +38,8 @@ public sealed class DeepSeekTranslateStep : TranslateStepBase
         public string Stage = "init";
     }
 
-    private static string ModuleSystemPrompt => PromptProvider.Get("Translate/module_system_prompt.txt").Trim();
-    private static string InternalAdPolicyPrompt => PromptProvider.Get("Translate/internal_ad_policy_prompt.txt").Trim();
+    private static string ModuleSystemPrompt => PromptProvider.Get("Translate/module_system_prompt.md").Trim();
+    private static string InternalAdPolicyPrompt => PromptProvider.Get("Translate/internal_ad_policy_prompt.md").Trim();
 
     public sealed class SentenceItem
     {
@@ -84,14 +84,6 @@ public sealed class DeepSeekTranslateStep : TranslateStepBase
     {
         PropertyNameCaseInsensitive = true
     };
-
-    private static string ApplyTemplate(string template, IReadOnlyDictionary<string, string> replacements)
-    {
-        var result = template;
-        foreach (var pair in replacements)
-            result = result.Replace($"{{{{{pair.Key}}}}}", pair.Value ?? string.Empty, StringComparison.Ordinal);
-        return result;
-    }
 
     private static List<EditOperation> NormalizeEditOperations(IEnumerable<EditOperation>? edits, bool filterPromotional)
     {
@@ -158,35 +150,13 @@ public sealed class DeepSeekTranslateStep : TranslateStepBase
         return true;
     }
 
-    private static string? ExtractJsonObject(string raw)
-    {
-        if (string.IsNullOrWhiteSpace(raw)) return null;
-        var s = raw.Trim();
-
-        if (s.StartsWith("```", StringComparison.Ordinal))
-        {
-            var firstNl = s.IndexOf('\n');
-            if (firstNl > 0)
-            {
-                s = s[(firstNl + 1)..].TrimStart();
-                var fence = s.LastIndexOf("```", StringComparison.Ordinal);
-                if (fence >= 0) s = s[..fence].TrimEnd();
-            }
-        }
-
-        var start = s.IndexOf('{');
-        var end = s.LastIndexOf('}');
-        if (start < 0 || end <= start) return null;
-        return s.Substring(start, end - start + 1);
-    }
-
     private static string TranslateTitle(string title, string domainHintPrompt)
     {
         var domainHintSection = string.IsNullOrWhiteSpace(domainHintPrompt)
             ? string.Empty
             : $"【视频主题提示】\n{domainHintPrompt.Trim()}";
-        var prompt = ApplyTemplate(
-            PromptProvider.Get("Translate/title_user_prompt_template.txt"),
+        var prompt = PipelineTextUtils.ApplyTemplate(
+            PromptProvider.Get("Translate/title_user_prompt_template.md"),
             new Dictionary<string, string>
             {
                 ["DOMAIN_HINT_SECTION"] = domainHintSection,
@@ -194,11 +164,11 @@ public sealed class DeepSeekTranslateStep : TranslateStepBase
             });
         var response = ApiCaller.CallApi(
             GlobalRuntimeConfig.Current.Llm.Model,
-            PromptProvider.Get("Translate/title_system_prompt.txt").Trim(),
+            PromptProvider.Get("Translate/title_system_prompt.md").Trim(),
             prompt).Result;
         try
         {
-            var json = ExtractJsonObject(response) ?? response.Trim();
+            var json = PipelineTextUtils.ExtractJsonObject(response) ?? response.Trim();
             using var doc = JsonDocument.Parse(json);
             return doc.RootElement.TryGetProperty("title", out var titleNode) ? titleNode.GetString() ?? title : title;
         }
@@ -239,7 +209,7 @@ public sealed class DeepSeekTranslateStep : TranslateStepBase
     }
 
     /// <summary>生成单轮 user prompt（与运行时一致，供快照文档）。</summary>
-    public static string BuildModuleUserPrompt(
+    private static string BuildModulePrompt(
         List<TranslationModule> modules,
         int moduleIndex,
         int contextWindow,
@@ -292,8 +262,8 @@ public sealed class DeepSeekTranslateStep : TranslateStepBase
             ? "【重要】你上一次输出不是合法 JSON，或 translations 条数与当前模块句数不一致。请仅输出 JSON 并修正条数。\n【重要】本次先确保 translations 条数正确，再填写其余字段。\n\n"
             : string.Empty;
 
-        return ApplyTemplate(
-            PromptProvider.Get("Translate/module_user_prompt_template.txt"),
+        return PipelineTextUtils.ApplyTemplate(
+            PromptProvider.Get("Translate/module_user_prompt_template.md"),
             new Dictionary<string, string>
             {
                 ["DOMAIN_HINT_SECTION"] = domainHintSection,
@@ -407,7 +377,7 @@ public sealed class DeepSeekTranslateStep : TranslateStepBase
     private static bool TryParseModuleJsonLoose(string response, out ModuleTranslationResponse parsed)
     {
         parsed = new ModuleTranslationResponse();
-        var json = ExtractJsonObject(response);
+        var json = PipelineTextUtils.ExtractJsonObject(response);
         if (json is null) return false;
         try
         {
@@ -430,8 +400,8 @@ public sealed class DeepSeekTranslateStep : TranslateStepBase
         var indexedLines = new StringBuilder();
         for (var i = 0; i < missingEnglishLines.Count; i++)
             indexedLines.AppendLine($"{i + 1}. {missingEnglishLines[i]}");
-        var prompt = ApplyTemplate(
-            PromptProvider.Get("Translate/repair_user_prompt_template.txt"),
+        var prompt = PipelineTextUtils.ApplyTemplate(
+            PromptProvider.Get("Translate/repair_user_prompt_template.md"),
             new Dictionary<string, string>
             {
                 ["COUNT"] = missingEnglishLines.Count.ToString(),
@@ -443,9 +413,9 @@ public sealed class DeepSeekTranslateStep : TranslateStepBase
         {
             var resp = ApiCaller.CallApi(
                 GlobalRuntimeConfig.Current.Llm.Model,
-                PromptProvider.Get("Translate/repair_system_prompt.txt").Trim(),
+                PromptProvider.Get("Translate/repair_system_prompt.md").Trim(),
                 prompt).Result;
-            var json = ExtractJsonObject(resp);
+            var json = PipelineTextUtils.ExtractJsonObject(resp);
             if (json is null) continue;
             try
             {
@@ -476,7 +446,7 @@ public sealed class DeepSeekTranslateStep : TranslateStepBase
     private static bool TryParseTranslationResponse(string response, int expectedCount, out ModuleTranslationResponse parsed)
     {
         parsed = new ModuleTranslationResponse();
-        var json = ExtractJsonObject(response);
+        var json = PipelineTextUtils.ExtractJsonObject(response);
         if (json is null) return false;
 
         try
@@ -509,16 +479,6 @@ public sealed class DeepSeekTranslateStep : TranslateStepBase
         if (t.Length > SynopsisMaxChars)
             t = t[..SynopsisMaxChars];
         synopsisParagraph = t;
-    }
-
-    private static void WriteFinalPromptSnapshot(WorkDirs dirs)
-    {
-        WriteFinalPromptSnapshot(
-            dirs,
-            new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase),
-            new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase),
-            string.Empty,
-            string.Empty);
     }
 
     private static Dictionary<string, string> LoadTermTableFromFile(string path)
@@ -683,7 +643,7 @@ public sealed class DeepSeekTranslateStep : TranslateStepBase
                 {
                     progress.CurrentAttempt = attempt + 1;
                     progress.Stage = "requesting-model";
-                    var prompt = BuildModuleUserPrompt(modules, moduleIndex, contextWindow, termTable, metaRules, synopsisParagraph,
+                    var prompt = BuildModulePrompt(modules, moduleIndex, contextWindow, termTable, metaRules, synopsisParagraph,
                         adSummaries, domainHintPrompt, translatedTitle, attempt > 0);
                     AppendHistory(dirs.PromptHistoryPath, $"--- attempt {attempt + 1} ---\n{prompt}");
                     lastResponse = ApiCaller.CallApi(GlobalRuntimeConfig.Current.Llm.Model, ModuleSystemPrompt, prompt).Result;

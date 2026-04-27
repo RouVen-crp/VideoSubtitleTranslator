@@ -8,7 +8,6 @@ public sealed class TranslatorRuntimeConfig
     public TranslationConfig Translation { get; set; } = new();
     public WhisperConfig Whisper { get; set; } = new();
     public BurnConfig Burn { get; set; } = new();
-    public PathsConfig Paths { get; set; } = new();
 
     public static TranslatorRuntimeConfig Load(string path)
     {
@@ -86,7 +85,3 @@ public sealed class BurnConfig
     public int MinOutputBitrateKbps { get; set; } = 0;
 }
 
-public sealed class PathsConfig
-{
-    public string PythonRequirementsPath { get; set; } = "PythonScripts/requirements.txt";
-}

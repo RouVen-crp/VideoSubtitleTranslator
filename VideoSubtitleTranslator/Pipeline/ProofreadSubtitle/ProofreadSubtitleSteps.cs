@@ -1,9 +1,7 @@
-using System.Diagnostics;
 using System.Text;
 using System.Text.Json;
 using System.Text.Json.Serialization;
 using System.Threading;
-using System.Threading.Tasks;
 
 namespace VideoSubtitleTranslator.Pipeline;
 
@@ -17,17 +15,7 @@ public abstract class ProofreadSubtitleStepBase : IPipelineStep
 [PipelineStep("ProofreadSubtitle", Implementation = "DeepSeek")]
 public sealed class DeepSeekProofreadSubtitleStep : ProofreadSubtitleStepBase
 {
-    private static string ProofreadSystemPrompt => PromptProvider.Get("Proofread/system_prompt.txt").Trim();
-
-    private sealed class ProgressState
-    {
-        public int TotalBlocks;
-        public int CurrentIndex;
-        public int CurrentAttempt;
-        public int MaxAttempts;
-        public int OutputBlocks;
-        public string Stage = "init";
-    }
+    private static string ProofreadSystemPrompt => PromptProvider.Get("Proofread/system_prompt.md").Trim();
 
     private sealed class SubtitleBlock
     {
@@ -98,38 +86,21 @@ public sealed class DeepSeekProofreadSubtitleStep : ProofreadSubtitleStepBase
         return list;
     }
 
-    private static string? ExtractJsonObject(string raw)
-    {
-        if (string.IsNullOrWhiteSpace(raw)) return null;
-        var s = raw.Trim();
-        if (s.StartsWith("```", StringComparison.Ordinal))
-        {
-            var firstNl = s.IndexOf('\n');
-            if (firstNl > 0)
-            {
-                s = s[(firstNl + 1)..].TrimStart();
-                var fence = s.LastIndexOf("```", StringComparison.Ordinal);
-                if (fence >= 0) s = s[..fence].TrimEnd();
-            }
-        }
-
-        var start = s.IndexOf('{');
-        var end = s.LastIndexOf('}');
-        if (start < 0 || end <= start) return null;
-        return s.Substring(start, end - start + 1);
-    }
-
     private static string BuildUserPrompt(SubtitleBlock a, SubtitleBlock b)
     {
-        return PromptProvider.Get("Proofread/user_prompt_template.txt")
-            .Replace("{{A_INDEX}}", a.Index.ToString(), StringComparison.Ordinal)
-            .Replace("{{A_START}}", a.Start, StringComparison.Ordinal)
-            .Replace("{{A_END}}", a.End, StringComparison.Ordinal)
-            .Replace("{{A_TEXT}}", a.Text, StringComparison.Ordinal)
-            .Replace("{{B_INDEX}}", b.Index.ToString(), StringComparison.Ordinal)
-            .Replace("{{B_START}}", b.Start, StringComparison.Ordinal)
-            .Replace("{{B_END}}", b.End, StringComparison.Ordinal)
-            .Replace("{{B_TEXT}}", b.Text, StringComparison.Ordinal);
+        return PipelineTextUtils.ApplyTemplate(
+            PromptProvider.Get("Proofread/user_prompt_template.md"),
+            new Dictionary<string, string>
+            {
+                ["A_INDEX"] = a.Index.ToString(),
+                ["A_START"] = a.Start,
+                ["A_END"] = a.End,
+                ["A_TEXT"] = a.Text,
+                ["B_INDEX"] = b.Index.ToString(),
+                ["B_START"] = b.Start,
+                ["B_END"] = b.End,
+                ["B_TEXT"] = b.Text
+            });
     }
 
     private static string NormalizeForCompare(string text)
@@ -186,7 +157,7 @@ public sealed class DeepSeekProofreadSubtitleStep : ProofreadSubtitleStepBase
         out List<SubtitleBlock> normalized)
     {
         normalized = new List<SubtitleBlock>();
-        var json = ExtractJsonObject(response);
+        var json = PipelineTextUtils.ExtractJsonObject(response);
         if (json is null) return false;
         try
         {
@@ -262,151 +233,101 @@ public sealed class DeepSeekProofreadSubtitleStep : ProofreadSubtitleStepBase
         var maxAttempts = Math.Max(1, cfg.ProofreadJsonMaxAttempts);
         var delayMs = Math.Max(0, cfg.ProofreadRequestDelayMs > 0 ? cfg.ProofreadRequestDelayMs : cfg.RequestDelayMs);
         var output = new List<SubtitleBlock>();
-        var progress = new ProgressState
-        {
-            TotalBlocks = source.Count,
-            MaxAttempts = maxAttempts
-        };
-
-        using var heartbeatCts = new CancellationTokenSource();
-        var startedAt = Stopwatch.StartNew();
-        var heartbeatTask = Task.Run(async () =>
-        {
-            while (!heartbeatCts.IsCancellationRequested)
-            {
-                Console.WriteLine(
-                    $"[proofread-heartbeat] elapsed={startedAt.Elapsed:hh\\:mm\\:ss} idx={progress.CurrentIndex + 1}/{progress.TotalBlocks} out={progress.OutputBlocks} attempt={progress.CurrentAttempt}/{progress.MaxAttempts} stage={progress.Stage}");
-                try
-                {
-                    await Task.Delay(TimeSpan.FromSeconds(10), heartbeatCts.Token);
-                }
-                catch (TaskCanceledException)
-                {
-                    break;
-                }
-            }
-        }, heartbeatCts.Token);
 
         using var logWriter = new StreamWriter(dirs.SubtitleProofreadLogPath, false, Encoding.UTF8);
         logWriter.WriteLine($"[start] blocks={source.Count}, attempts={maxAttempts}, ts={DateTime.UtcNow:O}");
+        var mergeCount = 0;
+        var rejectCount = 0;
+        var invokedCount = 0;
 
-        try
+        var left = source[0];
+        var nextIndex = 1;
+        while (nextIndex < source.Count)
         {
-            var left = source[0];
-            var nextIndex = 1;
-            while (nextIndex < source.Count)
+            var right = source[nextIndex];
+            if (!ShouldInvokeModel(left, right))
             {
-                progress.CurrentIndex = nextIndex - 1;
-                var right = source[nextIndex];
-                if (!ShouldInvokeModel(left, right))
-                {
-                    output.Add(left);
-                    left = right;
-                    progress.OutputBlocks = output.Count;
-                    progress.Stage = "skip-non-candidate";
-                    logWriter.WriteLine(
-                        $"[skip] left={output[^1].Index} right={left.Index} reason=non-candidate\n  keep-left={output[^1].Text}\n  next-left={left.Text}");
-                    nextIndex += 1;
-                    if (delayMs > 0) Thread.Sleep(delayMs);
-                    continue;
-                }
-
-                var prompt = BuildUserPrompt(left, right);
-                var parsed = false;
-                var lastResponse = string.Empty;
-                var lastRejectReason = string.Empty;
-                List<SubtitleBlock> candidate = new();
-                for (var attempt = 0; attempt < maxAttempts; attempt++)
-                {
-                    progress.CurrentAttempt = attempt + 1;
-                    progress.Stage = "requesting-model";
-                    lastResponse = ApiCaller.CallApi(GlobalRuntimeConfig.Current.Llm.Model, ProofreadSystemPrompt, prompt).Result;
-                    progress.Stage = "parsing-response";
-                    if (TryParseAndValidate(lastResponse, left, right, out candidate) &&
-                        !IsSuspiciousRewrite(left, right, candidate))
-                    {
-                        var reason = GetMergeReason(left, right, candidate);
-                        if (reason == "reject-merge")
-                        {
-                            candidate = new List<SubtitleBlock>
-                            {
-                                new() { Index = left.Index, Start = left.Start, End = left.End, Text = left.Text },
-                                new() { Index = right.Index, Start = right.Start, End = right.End, Text = right.Text }
-                            };
-                            logWriter.WriteLine(
-                                $"[reject] left={left.Index} right={right.Index} reason={reason} -> fallback=keep-two\n  left={left.Text}\n  right={right.Text}\n  model={lastResponse[..Math.Min(300, lastResponse.Length)]}");
-                        }
-                        parsed = true;
-                        break;
-                    }
-                    Thread.Sleep(delayMs);
-                }
-
-                if (!parsed)
-                    throw new InvalidOperationException(
-                        $"字幕后处理校对失败：窗口 {nextIndex - 1}/{source.Count} 在 {maxAttempts} 次后仍无法通过校验。最后拒绝原因：{lastRejectReason}。最后响应片段：\n{lastResponse[..Math.Min(1200, lastResponse.Length)]}");
-
-                if (candidate.Count == 1)
-                {
-                    var merged = new SubtitleBlock
-                    {
-                        Index = left.Index,
-                        Start = candidate[0].Start,
-                        End = candidate[0].End,
-                        Text = candidate[0].Text
-                    };
-                    progress.Stage = "merged";
-                    var reason = GetMergeReason(left, right, candidate);
-                    logWriter.WriteLine(
-                        $"[merge] left={left.Index} right={right.Index} reason={reason} -> {left.Index}+{right.Index}\n  left={left.Text}\n  right={right.Text}\n  merged={merged.Text}");
-                    left = merged;
-                    nextIndex += 1;
-                }
-                else
-                {
-                    output.Add(new SubtitleBlock
-                    {
-                        Index = left.Index,
-                        Start = candidate[0].Start,
-                        End = candidate[0].End,
-                        Text = candidate[0].Text
-                    });
-                    left = new SubtitleBlock
-                    {
-                        Index = right.Index,
-                        Start = candidate[1].Start,
-                        End = candidate[1].End,
-                        Text = candidate[1].Text
-                    };
-                    progress.OutputBlocks = output.Count;
-                    progress.Stage = "kept-or-deduped";
-                    logWriter.WriteLine(
-                        $"[slide] left={output[^1].Index} right={left.Index}\n  keep-left={output[^1].Text}\n  next-left={left.Text}");
-                    nextIndex += 1;
-                }
-
+                output.Add(left);
+                left = right;
+                nextIndex += 1;
                 if (delayMs > 0) Thread.Sleep(delayMs);
+                continue;
             }
 
-            output.Add(left);
-            progress.OutputBlocks = output.Count;
-            progress.Stage = "flush-tail";
-            logWriter.WriteLine($"[tail] idx={left.Index}, text={left.Text}");
-        }
-        finally
-        {
-            heartbeatCts.Cancel();
-            try
+            invokedCount++;
+            var prompt = BuildUserPrompt(left, right);
+            var parsed = false;
+            var lastResponse = string.Empty;
+            List<SubtitleBlock> candidate = new();
+            for (var attempt = 0; attempt < maxAttempts; attempt++)
             {
-                heartbeatTask.Wait(TimeSpan.FromSeconds(2));
+                lastResponse = ApiCaller.CallApi(GlobalRuntimeConfig.Current.Llm.Model, ProofreadSystemPrompt, prompt).Result;
+                if (TryParseAndValidate(lastResponse, left, right, out candidate) &&
+                    !IsSuspiciousRewrite(left, right, candidate))
+                {
+                    var reason = GetMergeReason(left, right, candidate);
+                    if (reason == "reject-merge")
+                    {
+                        rejectCount++;
+                        candidate = new List<SubtitleBlock>
+                        {
+                            new() { Index = left.Index, Start = left.Start, End = left.End, Text = left.Text },
+                            new() { Index = right.Index, Start = right.Start, End = right.End, Text = right.Text }
+                        };
+                        logWriter.WriteLine(
+                            $"[reject] left={left.Index} right={right.Index} reason={reason} -> fallback=keep-two\n  left={left.Text}\n  right={right.Text}");
+                    }
+                    parsed = true;
+                    break;
+                }
+                Thread.Sleep(delayMs);
             }
-            catch
+
+            if (!parsed)
+                throw new InvalidOperationException(
+                    $"字幕后处理校对失败：窗口 {nextIndex - 1}/{source.Count} 在 {maxAttempts} 次后仍无法通过校验。最后响应片段：\n{lastResponse[..Math.Min(1200, lastResponse.Length)]}");
+
+            if (candidate.Count == 1)
             {
-                // ignore
+                var merged = new SubtitleBlock
+                {
+                    Index = left.Index,
+                    Start = candidate[0].Start,
+                    End = candidate[0].End,
+                    Text = candidate[0].Text
+                };
+                var reason = GetMergeReason(left, right, candidate);
+                mergeCount++;
+                logWriter.WriteLine(
+                    $"[merge] left={left.Index} right={right.Index} reason={reason} -> {left.Index}+{right.Index}\n  left={left.Text}\n  right={right.Text}\n  merged={merged.Text}");
+                left = merged;
+                nextIndex += 1;
             }
+            else
+            {
+                output.Add(new SubtitleBlock
+                {
+                    Index = left.Index,
+                    Start = candidate[0].Start,
+                    End = candidate[0].End,
+                    Text = candidate[0].Text
+                });
+                left = new SubtitleBlock
+                {
+                    Index = right.Index,
+                    Start = candidate[1].Start,
+                    End = candidate[1].End,
+                    Text = candidate[1].Text
+                };
+                nextIndex += 1;
+            }
+
+            if (delayMs > 0) Thread.Sleep(delayMs);
         }
 
-        logWriter.WriteLine($"[end] outputBlocks={output.Count}, ts={DateTime.UtcNow:O}");
+        output.Add(left);
+        logWriter.WriteLine(
+            $"[end] inputBlocks={source.Count}, outputBlocks={output.Count}, modelInvocations={invokedCount}, mergedPairs={mergeCount}, rejectedMerges={rejectCount}, ts={DateTime.UtcNow:O}");
         WriteSrt(dirs.ProofreadSubtitlePath, output);
         WriteSrt(dirs.TranslatedSubtitlePath, output);
     }

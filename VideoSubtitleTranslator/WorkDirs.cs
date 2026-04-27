@@ -10,7 +10,6 @@ public class WorkDirs(string workspacePath, string videoExt)
     public string ThumbnailPath => Path.Combine(_workspacePath, "thumbnail");
     public string VideoPath => Path.Combine(_workspacePath, $"video{_videoExt}");
     public string AudioPath => Path.Combine(_workspacePath, "audio.wav");
-    public string WordSubtitlePath => Path.Combine(_workspacePath, "word_subtitle.srt");
     public string RawSubtitlePath => Path.Combine(_workspacePath, "raw_subtitle.txt");
     public string SubtitlePath => Path.Combine(_workspacePath, "subtitle.srt");
     public string NormalizedSubtitlePath => Path.Combine(_workspacePath, "subtitle.normalized.srt");

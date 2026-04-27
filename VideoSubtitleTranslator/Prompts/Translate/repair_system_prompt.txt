@@ -1,1 +1,0 @@
-你只输出一个包含 translations 数组的 JSON 对象。

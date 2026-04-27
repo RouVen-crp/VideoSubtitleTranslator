@@ -113,10 +113,6 @@
 - `enforceSourceBitrateFloor`：是否读取原视频流码率并保证输出视频码率不低于原视频。
 - `minOutputBitrateKbps`：额外最小输出码率（kbps）；实际输出码率下限为 `max(原视频码率, minOutputBitrateKbps)`。
 
-#### paths
-
-- `pythonRequirementsPath`：Python 依赖文件路径。
-
 ## 启动方式
 
 在项目根目录执行：
@@ -165,8 +161,18 @@ dotnet run --project VideoSubtitleTranslator -- "https://www.youtube.com/watch?v
 
 ## 提示词维护
 
-固定提示词已统一放在 `VideoSubtitleTranslator/Prompts/` 目录，运行时直接读取文件：
+固定提示词已统一放在 `VideoSubtitleTranslator/Prompts/` 目录，运行时直接读取 Markdown 提示词文件（`*.md`）：
 
 - `Prompts/Translate/`：翻译主流程提示词（含模块翻译、标题翻译、缺句修复）。
 - `Prompts/Normalize/`：字幕预处理（句子合并判定）提示词。
 - `Prompts/Proofread/`：翻译后字幕校对提示词。
+- 提示词文本采用结构化 Markdown 组织（任务、输入上下文、输出契约、硬约束），便于维护与审阅。
+
+## Normalize / Proofread 行为说明
+
+- `NormalizeSubtitle` 采用滚动窗口状态转移：
+  - 不合并：输出左句，右句晋升为左句，下一句进入右句。
+  - 合并：左右句在业务侧合并为新左句，下一句进入右句。
+- `NormalizeSubtitle` 中 LLM 只负责输出 `merge=true/false` 判定，不再返回合并后的句子文本。
+- `ProofreadSubtitle` 采用同样的左值滚动机制处理相邻两条字幕窗口。
+- `subtitle_normalize.log` 与 `subtitle_proofread.log` 默认仅记录关键事件（如合并/拒绝合并）和结束统计，减少噪声日志。

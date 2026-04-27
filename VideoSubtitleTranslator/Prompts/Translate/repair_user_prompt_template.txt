@@ -1,4 +1,0 @@
-将下列英文逐条翻译为中文。
-只输出 JSON：{"translations":["..."]}。不要输出其他任何文字。
-translations 数组长度必须等于 {{COUNT}}，顺序与输入完全一致。
-{{LINES}}
