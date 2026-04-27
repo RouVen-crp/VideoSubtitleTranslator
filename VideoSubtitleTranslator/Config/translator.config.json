@@ -2,7 +2,7 @@
   "llm": {
     "baseUrl": "https://api.deepseek.com/v1/chat/completions",
     "apiKeyEnv": "DEEPSEEK_API_KEY",
-    "model": "deepseek-chat",
+    "model": "deepseek-v4-flash",
     "retryCount": 3,
     "timeoutSeconds": 60,
     "temperature": 0.2,
