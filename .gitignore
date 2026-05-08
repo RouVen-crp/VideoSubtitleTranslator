@@ -43,3 +43,7 @@ Thumbs.db
 # Runtime workspace/temp outputs
 **/*.tmp
 **/*.temp
+
+# agents and dev docs
+docs/
+AGENTS.md
