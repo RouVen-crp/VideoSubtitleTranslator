@@ -54,24 +54,36 @@ public sealed class DefaultBurnSubtitleStep : BurnSubtitleStepBase
                ?? RunFfprobeBitrate(videoPath, "-show_entries format=bit_rate");
     }
 
-    private static string BuildFfmpegArgs(
+    internal static string BuildFfmpegArgs(
         WorkDirs dirs,
         string outputPath,
         string encoder,
         string qualityPreset,
-        int? targetBitrateKbps)
+        int? targetBitrateKbps,
+        string subtitlePath)
     {
         var bitrateArgs = targetBitrateKbps.HasValue
             ? $" -b:v {targetBitrateKbps.Value}k -maxrate {targetBitrateKbps.Value}k -bufsize {targetBitrateKbps.Value * 2}k"
             : string.Empty;
 
-        // auto: 按 ffmpeg 默认编码策略，不显式指定 c:v。
         if (!string.Equals(qualityPreset?.Trim(), "high", StringComparison.OrdinalIgnoreCase) && !targetBitrateKbps.HasValue)
-            return $"-i \"{dirs.VideoPath}\" -vf subtitles='{dirs.TranslatedSubtitlePath}' -c:a copy \"{outputPath}\"";
+            return $"-i \"{dirs.VideoPath}\" -vf subtitles='{subtitlePath}' -c:a copy \"{outputPath}\"";
 
-        // high 或者启用了最低码率保护：显式视频编码参数。
         return
-            $"-i \"{dirs.VideoPath}\" -vf subtitles='{dirs.TranslatedSubtitlePath}' -c:v {encoder}{bitrateArgs} -c:a copy \"{outputPath}\"";
+            $"-i \"{dirs.VideoPath}\" -vf subtitles='{subtitlePath}' -c:v {encoder}{bitrateArgs} -c:a copy \"{outputPath}\"";
+    }
+
+    internal static string ResolveSubtitlePath(WorkDirs dirs)
+    {
+        if (File.Exists(dirs.DualSubtitlePath))
+        {
+            Console.WriteLine("[burn] Using dual-subtitle ASS");
+            return dirs.DualSubtitlePath;
+        }
+
+        var fallback = File.Exists(dirs.ProofreadSubtitlePath) ? dirs.ProofreadSubtitlePath : dirs.TranslatedSubtitlePath;
+        Console.WriteLine($"[burn] Using subtitle: {fallback}");
+        return fallback;
     }
 
     private static void Burn(WorkDirs dirs)
@@ -110,7 +122,8 @@ public sealed class DefaultBurnSubtitleStep : BurnSubtitleStepBase
             }
         }
 
-        var ffmpegArgs = BuildFfmpegArgs(dirs, finalVideoPath, burnConfig.VideoEncoder, qualityPreset, targetBitrateKbps);
+        var subtitlePath = ResolveSubtitlePath(dirs);
+        var ffmpegArgs = BuildFfmpegArgs(dirs, finalVideoPath, burnConfig.VideoEncoder, qualityPreset, targetBitrateKbps, subtitlePath);
         Console.WriteLine(
             $"[burn] qualityPreset={qualityPreset}, encoder={burnConfig.VideoEncoder}, bitrateFloorEnabled={burnConfig.EnforceSourceBitrateFloor}");
 

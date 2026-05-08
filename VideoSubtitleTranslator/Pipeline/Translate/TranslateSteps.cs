@@ -26,7 +26,7 @@ public abstract class TranslateStepBase : IPipelineStep
 /// 模块化翻译：整段前情提要重写、术语增量、独立 ad_memory 广告概括文件；解析失败抛异常中止。
 /// </summary>
 [PipelineStep("Translate", Implementation = "DeepSeek")]
-public sealed class DeepSeekTranslateStep : TranslateStepBase
+public class DeepSeekTranslateStep : TranslateStepBase
 {
     private sealed class ProgressState
     {
@@ -38,8 +38,10 @@ public sealed class DeepSeekTranslateStep : TranslateStepBase
         public string Stage = "init";
     }
 
-    private static string ModuleSystemPrompt => PromptProvider.Get("Translate/module_system_prompt.md").Trim();
-    private static string InternalAdPolicyPrompt => PromptProvider.Get("Translate/internal_ad_policy_prompt.md").Trim();
+    private string ModuleSysPrompt => PromptProvider.Get($"{PromptFolder}/module_system_prompt.md").Trim();
+    private string InternalAdPolicy => PromptProvider.Get($"{PromptFolder}/internal_ad_policy_prompt.md").Trim();
+
+    protected virtual string PromptFolder => "Translate";
 
     public sealed class SentenceItem
     {
@@ -150,13 +152,13 @@ public sealed class DeepSeekTranslateStep : TranslateStepBase
         return true;
     }
 
-    private static string TranslateTitle(string title, string domainHintPrompt)
+    private string TranslateTitle(string title, string domainHintPrompt)
     {
         var domainHintSection = string.IsNullOrWhiteSpace(domainHintPrompt)
             ? string.Empty
             : $"【视频主题提示】\n{domainHintPrompt.Trim()}";
         var prompt = PipelineTextUtils.ApplyTemplate(
-            PromptProvider.Get("Translate/title_user_prompt_template.md"),
+            PromptProvider.Get($"{PromptFolder}/title_user_prompt_template.md"),
             new Dictionary<string, string>
             {
                 ["DOMAIN_HINT_SECTION"] = domainHintSection,
@@ -164,7 +166,7 @@ public sealed class DeepSeekTranslateStep : TranslateStepBase
             });
         var response = ApiCaller.CallApi(
             GlobalRuntimeConfig.Current.Llm.Model,
-            PromptProvider.Get("Translate/title_system_prompt.md").Trim(),
+            PromptProvider.Get($"{PromptFolder}/title_system_prompt.md").Trim(),
             prompt).Result;
         try
         {
@@ -208,8 +210,7 @@ public sealed class DeepSeekTranslateStep : TranslateStepBase
         return modules;
     }
 
-    /// <summary>生成单轮 user prompt（与运行时一致，供快照文档）。</summary>
-    private static string BuildModulePrompt(
+    private string BuildModulePrompt(
         List<TranslationModule> modules,
         int moduleIndex,
         int contextWindow,
@@ -263,11 +264,11 @@ public sealed class DeepSeekTranslateStep : TranslateStepBase
             : string.Empty;
 
         return PipelineTextUtils.ApplyTemplate(
-            PromptProvider.Get("Translate/module_user_prompt_template.md"),
+            PromptProvider.Get($"{PromptFolder}/module_user_prompt_template.md"),
             new Dictionary<string, string>
             {
                 ["DOMAIN_HINT_SECTION"] = domainHintSection,
-                ["INTERNAL_AD_POLICY_PROMPT"] = InternalAdPolicyPrompt,
+                ["INTERNAL_AD_POLICY_PROMPT"] = InternalAdPolicy,
                 ["AD_SUMMARIES"] = string.IsNullOrWhiteSpace(adSummaries) ? "（尚无）" : adSummaries,
                 ["REPAIR_SECTION"] = repairSection,
                 ["TRANSLATED_TITLE"] = translatedTitle,
@@ -394,14 +395,14 @@ public sealed class DeepSeekTranslateStep : TranslateStepBase
         }
     }
 
-    private static List<string> RepairMissingTranslationsLines(IReadOnlyList<string> missingEnglishLines)
+    private List<string> RepairMissingTranslationsLines(IReadOnlyList<string> missingEnglishLines)
     {
         if (missingEnglishLines.Count == 0) return new List<string>();
         var indexedLines = new StringBuilder();
         for (var i = 0; i < missingEnglishLines.Count; i++)
             indexedLines.AppendLine($"{i + 1}. {missingEnglishLines[i]}");
         var prompt = PipelineTextUtils.ApplyTemplate(
-            PromptProvider.Get("Translate/repair_user_prompt_template.md"),
+            PromptProvider.Get($"{PromptFolder}/repair_user_prompt_template.md"),
             new Dictionary<string, string>
             {
                 ["COUNT"] = missingEnglishLines.Count.ToString(),
@@ -413,7 +414,7 @@ public sealed class DeepSeekTranslateStep : TranslateStepBase
         {
             var resp = ApiCaller.CallApi(
                 GlobalRuntimeConfig.Current.Llm.Model,
-                PromptProvider.Get("Translate/repair_system_prompt.md").Trim(),
+                PromptProvider.Get($"{PromptFolder}/repair_system_prompt.md").Trim(),
                 prompt).Result;
             var json = PipelineTextUtils.ExtractJsonObject(resp);
             if (json is null) continue;
@@ -499,7 +500,7 @@ public sealed class DeepSeekTranslateStep : TranslateStepBase
         return result;
     }
 
-    private static void WriteFinalPromptSnapshot(
+    private void WriteFinalPromptSnapshot(
         WorkDirs dirs,
         IReadOnlyDictionary<string, string> termTable,
         IReadOnlyDictionary<string, string> metaRules,
@@ -554,23 +555,19 @@ public sealed class DeepSeekTranslateStep : TranslateStepBase
         sb.AppendLine();
         sb.AppendLine("## 程序内置广告策略");
         sb.AppendLine();
-        sb.AppendLine(InternalAdPolicyPrompt);
-        sb.AppendLine();
-        sb.AppendLine("## 全局主题提示词（translation.domainHintPrompt）");
-        sb.AppendLine();
-        sb.AppendLine(string.IsNullOrWhiteSpace(domainHintPrompt) ? "（空）" : domainHintPrompt.Trim());
+        sb.AppendLine(InternalAdPolicy);
         sb.AppendLine();
         sb.AppendLine("## 最终提示词（用于追溯策略，不用于审核正文）");
         sb.AppendLine();
         sb.AppendLine("```");
-        sb.AppendLine(ModuleSystemPrompt);
+        sb.AppendLine(ModuleSysPrompt);
         sb.AppendLine("```");
 
         var workspaceSnap = dirs.CustomPath("translator_prompt_snapshot.md");
         File.WriteAllText(workspaceSnap, sb.ToString(), Encoding.UTF8);
     }
 
-    private static void RunTranslation(string rawTitle, WorkDirs dirs)
+    private void RunTranslation(string rawTitle, WorkDirs dirs)
     {
         var domainHintPrompt = GlobalRuntimeConfig.Current.Translation.DomainHintPrompt;
         if (File.Exists(dirs.RawTranslatedSubtitlePath) && File.Exists(dirs.TranslatedSubtitlePath))
@@ -646,7 +643,7 @@ public sealed class DeepSeekTranslateStep : TranslateStepBase
                     var prompt = BuildModulePrompt(modules, moduleIndex, contextWindow, termTable, metaRules, synopsisParagraph,
                         adSummaries, domainHintPrompt, translatedTitle, attempt > 0);
                     AppendHistory(dirs.PromptHistoryPath, $"--- attempt {attempt + 1} ---\n{prompt}");
-                    lastResponse = ApiCaller.CallApi(GlobalRuntimeConfig.Current.Llm.Model, ModuleSystemPrompt, prompt).Result;
+                    lastResponse = ApiCaller.CallApi(GlobalRuntimeConfig.Current.Llm.Model, ModuleSysPrompt, prompt).Result;
                     progress.Stage = "parsing-response";
                     AppendHistory(dirs.PromptHistoryPath, $"--- raw response attempt {attempt + 1} ---\n{lastResponse}");
 
@@ -779,4 +776,10 @@ public sealed class DeepSeekTranslateStep : TranslateStepBase
         RunTranslation(title, dirs);
         return context;
     }
+}
+
+[PipelineStep("Translate", Implementation = "Meme")]
+public sealed class MemeTranslateStep : DeepSeekTranslateStep
+{
+    protected override string PromptFolder => "Translate/Meme";
 }

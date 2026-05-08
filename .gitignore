@@ -31,6 +31,9 @@ _ReSharper.Caches/
 .DS_Store
 Thumbs.db
 
+# Environment secrets
+.env
+
 # Python virtual environments and caches
 **/venv/
 **/.venv/

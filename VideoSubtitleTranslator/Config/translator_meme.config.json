@@ -1,5 +1,5 @@
 {
-  "cookiesFromBrowser": "",
+  "cookiesFromBrowser": "chrome",
   "llm": {
     "baseUrl": "https://api.deepseek.com/v1/chat/completions",
     "apiKeyEnv": "DEEPSEEK_API_KEY",
@@ -11,20 +11,21 @@
   },
   "translation": {
     "domainHintPrompt": "",
-    "metaRulesMaxCount": 120,
-    "metaRuleMaxChars": 300,
-    "moduleSentenceCount": 4,
+    "metaRulesMaxCount": 60,
+    "metaRuleMaxChars": 200,
+    "moduleSentenceCount": 2,
     "contextModuleWindow": 2,
     "requestDelayMs": 200,
     "moduleJsonMaxAttempts": 4,
-    "synopsisMaxChars": 12000,
+    "synopsisMaxChars": 6000,
     "normalizeJsonMaxAttempts": 3,
     "normalizeWindowSize": 2,
     "synopsisCompressEveryModules": 3,
-    "proofreadEnabled": true,
+    "proofreadEnabled": false,
     "proofreadJsonMaxAttempts": 3,
     "proofreadWindowSize": 2,
-    "proofreadRequestDelayMs": 0
+    "proofreadRequestDelayMs": 0,
+    "culturalAnnotateEnabled": true
   },
   "whisper": {
     "pythonExecutable": "python3",

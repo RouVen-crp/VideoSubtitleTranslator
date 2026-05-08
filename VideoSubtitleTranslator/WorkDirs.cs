@@ -29,4 +29,8 @@ public class WorkDirs(string workspacePath, string videoExt)
     public string MemoryHistoryPath => Path.Combine(_workspacePath, "memory_history.log");
     public string PromptHistoryPath => Path.Combine(_workspacePath, "prompt_history.log");
     public string InfoPath => Path.Combine(_workspacePath, "info.txt");
+    public string CulturalAnnotationsPath => Path.Combine(_workspacePath, "cultural_annotations.json");
+    public string CulturalTermTablePath => Path.Combine(_workspacePath, "cultural_term_table.txt");
+    public string CulturalContextPath => Path.Combine(_workspacePath, "cultural_context.txt");
+    public string DualSubtitlePath => Path.Combine(_workspacePath, "dual_subtitle.ass");
 }

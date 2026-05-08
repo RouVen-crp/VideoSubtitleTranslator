@@ -13,7 +13,8 @@ public static class ApiCaller
             var key = Environment.GetEnvironmentVariable(GlobalRuntimeConfig.Current.Llm.ApiKeyEnv);
             if (!string.IsNullOrEmpty(key)) return key;
 
-            Console.Write($"Invalid Api Key, env={GlobalRuntimeConfig.Current.Llm.ApiKeyEnv}");
+            Console.WriteLine($"未设置 API Key（环境变量 {GlobalRuntimeConfig.Current.Llm.ApiKeyEnv} 为空）。");
+            Console.WriteLine("请复制 .env.example 为 .env 并填入正确的 API Key。");
             return "";
         }
     }

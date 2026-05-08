@@ -11,11 +11,17 @@
 
     <ItemGroup>
         <Content Include="pipeline.config.json" CopyToOutputDirectory="PreserveNewest" />
+        <Content Include="pipeline_meme.config.json" CopyToOutputDirectory="PreserveNewest" />
         <Content Include="Config/translator.config.json" CopyToOutputDirectory="PreserveNewest" />
+        <Content Include="Config/translator_meme.config.json" CopyToOutputDirectory="PreserveNewest" />
         <Content Include="PythonScripts/subtitler.py" CopyToOutputDirectory="PreserveNewest" />
         <Content Include="PythonScripts/requirements.txt" CopyToOutputDirectory="PreserveNewest" />
         <Content Include="scripts/init_python_venv.sh" CopyToOutputDirectory="PreserveNewest" />
         <Content Include="Prompts/**/*.md" CopyToOutputDirectory="PreserveNewest" />
+    </ItemGroup>
+
+    <ItemGroup>
+        <InternalsVisibleTo Include="VideoSubtitleTranslator.Tests" />
     </ItemGroup>
 
 </Project>

@@ -4,6 +4,8 @@ namespace VideoSubtitleTranslator;
 
 public sealed class TranslatorRuntimeConfig
 {
+    public string Mode { get; set; } = "standard";
+    public string CookiesFromBrowser { get; set; } = string.Empty;
     public LlmConfig Llm { get; set; } = new();
     public TranslationConfig Translation { get; set; } = new();
     public WhisperConfig Whisper { get; set; } = new();
@@ -63,6 +65,8 @@ public sealed class TranslationConfig
     public int ProofreadWindowSize { get; set; } = 2;
     /// <summary>字幕后处理请求间隔，0 表示沿用 RequestDelayMs。</summary>
     public int ProofreadRequestDelayMs { get; set; } = 0;
+    /// <summary>是否启用文化注释步骤（meme 模式下自动开启）。</summary>
+    public bool CulturalAnnotateEnabled { get; set; }
 }
 
 public sealed class WhisperConfig

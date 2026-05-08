@@ -21,6 +21,15 @@ public abstract class DownloadStepBase : IPipelineStep
 [PipelineStep("Download", Implementation = "Default")]
 public sealed class DefaultDownloadStep : DownloadStepBase
 {
+    private static string BuildCookiesArg()
+    {
+        var cookiesFile = Environment.GetEnvironmentVariable("COOKIES_FILE");
+        if (!string.IsNullOrWhiteSpace(cookiesFile) && File.Exists(cookiesFile))
+            return $" --cookies \"{cookiesFile}\"";
+        var browser = GlobalRuntimeConfig.Current.CookiesFromBrowser;
+        return string.IsNullOrWhiteSpace(browser) ? string.Empty : $" --cookies-from-browser {browser}";
+    }
+
     private static void DownloadThumbnail(string videoUrl, WorkDirs dirs)
     {
         if (File.Exists($"{dirs.ThumbnailPath}.png"))
@@ -30,7 +39,7 @@ public sealed class DefaultDownloadStep : DownloadStepBase
         }
 
         using var process = Process.Start("yt-dlp",
-            $"--write-thumbnail --convert-thumbnails png --skip-download -o \"{dirs.ThumbnailPath}\" \"{videoUrl}\"");
+            $"--write-thumbnail --convert-thumbnails png --skip-download -o \"{dirs.ThumbnailPath}\" \"{videoUrl}\"{BuildCookiesArg()}");
         process?.WaitForExit();
     }
 
@@ -43,7 +52,7 @@ public sealed class DefaultDownloadStep : DownloadStepBase
         }
 
         using var process = Process.Start("yt-dlp",
-            $"--js-runtimes node --restrict-filenames -o \"{dirs.VideoPath}\" \"{videoUrl}\"");
+            $"--js-runtimes node --restrict-filenames -o \"{dirs.VideoPath}\" \"{videoUrl}\"{BuildCookiesArg()}");
         process?.WaitForExit();
     }
 

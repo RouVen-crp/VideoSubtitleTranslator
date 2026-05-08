@@ -24,12 +24,21 @@ public abstract class InitMetadataStepBase : IPipelineStep
 [PipelineStep("InitMetadata", Implementation = "MetaGetter")]
 public sealed class MetaGetterInitMetadataStep : InitMetadataStepBase
 {
+    private static string BuildCookiesArg()
+    {
+        var cookiesFile = Environment.GetEnvironmentVariable("COOKIES_FILE");
+        if (!string.IsNullOrWhiteSpace(cookiesFile) && File.Exists(cookiesFile))
+            return $" --cookies \"{cookiesFile}\"";
+        var browser = GlobalRuntimeConfig.Current.CookiesFromBrowser;
+        return string.IsNullOrWhiteSpace(browser) ? string.Empty : $" --cookies-from-browser {browser}";
+    }
+
     private static (string title, string ext, string author, string uploadDate) GetVideoMetadata(string url)
     {
         var startInfo = new ProcessStartInfo
         {
             FileName = "yt-dlp",
-            Arguments = $"--js-runtimes node --dump-json \"{url}\"",
+            Arguments = $"--js-runtimes node --dump-json \"{url}\"{BuildCookiesArg()}",
             RedirectStandardOutput = true,
             RedirectStandardError = true,
             UseShellExecute = false,
