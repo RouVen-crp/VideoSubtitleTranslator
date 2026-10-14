@@ -38,6 +38,7 @@ public sealed class WorkbenchWorker : BackgroundService
 
     protected override async Task ExecuteAsync(CancellationToken stoppingToken)
     {
+        _store.MarkRunningOperationsAsFailed();
         _store.MarkProcessingAsInterrupted();
         foreach (var queued in _store.FindByStatus(WorkbenchTaskStatus.Queued))
             await EnqueueAsync(new WorkCommand(queued.Id, WorkKind.Pipeline, OperationId: queued.OperationId), stoppingToken);
@@ -47,7 +48,12 @@ public sealed class WorkbenchWorker : BackgroundService
         await foreach (var command in _commands.Reader.ReadAllAsync(stoppingToken))
         {
             var task = _store.GetTask(command.TaskId);
-            if (task is null || task.Status == WorkbenchTaskStatus.Cancelled) continue;
+            if (task is null) continue;
+            if (task.Status == WorkbenchTaskStatus.Cancelled)
+            {
+                if (!string.IsNullOrWhiteSpace(command.OperationId)) _store.MarkOperationFailed(command.OperationId, "任务已取消。");
+                continue;
+            }
             await ProcessOneAsync(command, stoppingToken);
         }
     }
@@ -56,9 +62,11 @@ public sealed class WorkbenchWorker : BackgroundService
     {
         var task = _store.GetTask(command.TaskId);
         if (task is null || task.Status == WorkbenchTaskStatus.Cancelled) return;
+        if (!string.IsNullOrWhiteSpace(command.OperationId)) _store.MarkOperationRunning(command.OperationId);
         using var linked = CancellationTokenSource.CreateLinkedTokenSource(stoppingToken);
         _running[task.Id] = linked;
         var started = DateTimeOffset.UtcNow;
+        var succeeded = false;
         try
         {
             switch (command.Kind)
@@ -68,6 +76,7 @@ public sealed class WorkbenchWorker : BackgroundService
                 case WorkKind.Export: await RunExportAsync(task, command, linked.Token); break;
                 default: throw new InvalidOperationException($"未知工作命令：{command.Kind}");
             }
+            succeeded = true;
         }
         catch (OperationCanceledException) when (linked.IsCancellationRequested)
         {
@@ -91,6 +100,11 @@ public sealed class WorkbenchWorker : BackgroundService
             task.ElapsedSeconds += (DateTimeOffset.UtcNow - started).TotalSeconds;
             if (task.Status is WorkbenchTaskStatus.Failed or WorkbenchTaskStatus.Cancelled)
                 _store.SaveTask(task);
+            if (!string.IsNullOrWhiteSpace(command.OperationId))
+            {
+                if (succeeded) _store.MarkOperationCompleted(command.OperationId);
+                else _store.MarkOperationFailed(command.OperationId, task.Error ?? "操作未完成。");
+            }
             _running.TryRemove(task.Id, out _);
         }
     }
@@ -109,12 +123,13 @@ public sealed class WorkbenchWorker : BackgroundService
             _store.SaveTask(task);
         }, cancellationToken);
         cancellationToken.ThrowIfCancellationRequested();
+        if (!_store.TryCompletePipeline(task.Id, document.Revision, document.Items.Count))
+            throw new OperationCanceledException(cancellationToken);
         task.Revision = document.Revision;
         task.ProcessedItems = document.Items.Count;
         task.TotalItems = document.Items.Count;
         task.Status = WorkbenchTaskStatus.AwaitingReview;
         task.Stage = "AwaitingReview";
-        _store.SaveTask(task);
     }
 
     private async Task RunRetranslationAsync(WorkbenchTask task, WorkCommand command, CancellationToken cancellationToken)
@@ -135,13 +150,12 @@ public sealed class WorkbenchWorker : BackgroundService
         using var json = JsonDocument.Parse(ExtractJson(raw));
         var translation = json.RootElement.GetProperty("translations")[0].GetString();
         if (string.IsNullOrWhiteSpace(translation)) throw new InvalidDataException("模型未返回有效的单句翻译。");
+        cancellationToken.ThrowIfCancellationRequested();
         if (!_store.TryApplyTranslation(task.Id, item.Id, command.ExpectedRevision, translation, out var revision))
             throw new InvalidOperationException("单句翻译返回过晚；较新的人工修改已得到保护。");
         task.Revision = revision;
         task.Status = WorkbenchTaskStatus.AwaitingReview;
         task.Stage = "AwaitingReview";
-        task.Error = null;
-        _store.SaveTask(task);
     }
 
     private async Task RunExportAsync(WorkbenchTask task, WorkCommand command, CancellationToken cancellationToken)

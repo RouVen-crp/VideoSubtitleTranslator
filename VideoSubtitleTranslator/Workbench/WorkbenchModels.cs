@@ -69,6 +69,14 @@ public enum WorkKind
     Export
 }
 
+public enum WorkbenchOperationStatus
+{
+    Queued,
+    Running,
+    Completed,
+    Failed
+}
+
 public sealed record PendingOperation(string OperationId, string TaskId, WorkKind Kind, int ExpectedRevision, string? SubtitleId, bool Bilingual);
 
 public sealed record SaveSubtitleRequest(int ExpectedRevision, IReadOnlyList<SubtitleItem> Items);

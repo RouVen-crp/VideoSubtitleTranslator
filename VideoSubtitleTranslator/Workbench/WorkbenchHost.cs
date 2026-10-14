@@ -139,6 +139,19 @@ internal static class WorkbenchEndpoints
             if (task is null) return Results.NotFound(new ApiError("task_not_found", "任务不存在。"));
             if (task.Status is not (WorkbenchTaskStatus.Interrupted or WorkbenchTaskStatus.Failed))
                 return Results.Conflict(new ApiError("cannot_resume", "只有中断或失败任务可以恢复。"));
+            var pendingRetranslation = store.FindPendingOperation(taskId, WorkKind.Retranslate);
+            if (pendingRetranslation is { SubtitleId: not null } && pendingRetranslation.ExpectedRevision == task.Revision)
+            {
+                var pendingOperationId = pendingRetranslation.OperationId;
+                if (!store.TryBeginOperation(pendingOperationId, taskId, WorkKind.Retranslate, pendingRetranslation.ExpectedRevision, pendingRetranslation.SubtitleId))
+                    return Results.Conflict(new ApiError("operation_in_progress", "该单句翻译操作正在处理中，请稍后刷新。"));
+                task.Status = WorkbenchTaskStatus.Queued;
+                task.Stage = "Retranslate";
+                task.Error = "恢复可能重试未提交完成的翻译请求，并产生新的 API 费用。";
+                store.SaveTask(task);
+                await worker.EnqueueAsync(new WorkCommand(taskId, WorkKind.Retranslate, pendingRetranslation.ExpectedRevision, pendingRetranslation.SubtitleId, OperationId: pendingOperationId), cancellationToken);
+                return Results.Accepted($"/api/tasks/{taskId}", task);
+            }
             var operationId = $"resume:{taskId}:{task.Revision}:{Guid.NewGuid():N}";
             store.TryBeginOperation(operationId, taskId, WorkKind.Pipeline);
             task.Status = WorkbenchTaskStatus.Queued;

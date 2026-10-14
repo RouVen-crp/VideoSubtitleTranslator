@@ -95,6 +95,9 @@ public sealed class WorkbenchStore
                     expected_revision INTEGER NOT NULL DEFAULT 0,
                     subtitle_id TEXT NULL,
                     bilingual INTEGER NOT NULL DEFAULT 0,
+                    status TEXT NOT NULL DEFAULT 'Queued',
+                    error TEXT NULL,
+                    updated_at TEXT NOT NULL DEFAULT '',
                     created_at TEXT NOT NULL,
                     FOREIGN KEY(task_id) REFERENCES tasks(id)
                 );
@@ -103,6 +106,9 @@ public sealed class WorkbenchStore
             EnsureColumn(connection, "operations", "expected_revision", "INTEGER NOT NULL DEFAULT 0");
             EnsureColumn(connection, "operations", "subtitle_id", "TEXT NULL");
             EnsureColumn(connection, "operations", "bilingual", "INTEGER NOT NULL DEFAULT 0");
+            EnsureColumn(connection, "operations", "status", "TEXT NOT NULL DEFAULT 'Queued'");
+            EnsureColumn(connection, "operations", "error", "TEXT NULL");
+            EnsureColumn(connection, "operations", "updated_at", "TEXT NOT NULL DEFAULT ''");
         }
     }
 
@@ -210,12 +216,15 @@ public sealed class WorkbenchStore
             using var connection = Open();
             using var command = connection.CreateCommand();
             command.CommandText = """
-                UPDATE tasks SET source_file_name=$name, workspace_path=$workspace, status=$status,
+                UPDATE tasks SET source_file_name=$name, workspace_path=$workspace,
+                    status=CASE WHEN status=$cancelled THEN $cancelled ELSE $status END,
                     stage=$stage, processed_items=$processed, total_items=$total,
-                    elapsed_seconds=$elapsed, revision=$revision, error=$error,
+                    elapsed_seconds=$elapsed, revision=$revision,
+                    error=CASE WHEN status=$cancelled THEN error ELSE $error END,
                     updated_at=$updated WHERE id=$id
                 """;
             AddTaskParameters(command, task, includeOperation: false);
+            command.Parameters.AddWithValue("$cancelled", WorkbenchTaskStatus.Cancelled.ToString());
             command.ExecuteNonQuery();
         }
     }
@@ -226,15 +235,65 @@ public sealed class WorkbenchStore
         {
             using var connection = Open();
             using var command = connection.CreateCommand();
-            command.CommandText = "INSERT OR IGNORE INTO operations(operation_id, task_id, kind, expected_revision, subtitle_id, bilingual, created_at) VALUES($id,$task,$kind,$revision,$subtitle,$bilingual,$created)";
+            command.CommandText = "INSERT OR IGNORE INTO operations(operation_id, task_id, kind, expected_revision, subtitle_id, bilingual, status, created_at, updated_at) VALUES($id,$task,$kind,$revision,$subtitle,$bilingual,$status,$created,$updated)";
             command.Parameters.AddWithValue("$id", operationId);
             command.Parameters.AddWithValue("$task", taskId);
             command.Parameters.AddWithValue("$kind", kind.ToString());
             command.Parameters.AddWithValue("$revision", expectedRevision);
             command.Parameters.AddWithValue("$subtitle", (object?)subtitleId ?? DBNull.Value);
             command.Parameters.AddWithValue("$bilingual", bilingual ? 1 : 0);
-            command.Parameters.AddWithValue("$created", DateTimeOffset.UtcNow.ToString("O"));
-            return command.ExecuteNonQuery() == 1;
+            command.Parameters.AddWithValue("$status", WorkbenchOperationStatus.Queued.ToString());
+            var now = DateTimeOffset.UtcNow.ToString("O");
+            command.Parameters.AddWithValue("$created", now);
+            command.Parameters.AddWithValue("$updated", now);
+            if (command.ExecuteNonQuery() == 1) return true;
+
+            using var retry = connection.CreateCommand();
+            retry.CommandText = "UPDATE operations SET task_id=$task, kind=$kind, expected_revision=$revision, subtitle_id=$subtitle, bilingual=$bilingual, status=$queued, error=NULL, updated_at=$updated WHERE operation_id=$id AND status=$failed";
+            retry.Parameters.AddWithValue("$id", operationId);
+            retry.Parameters.AddWithValue("$task", taskId);
+            retry.Parameters.AddWithValue("$kind", kind.ToString());
+            retry.Parameters.AddWithValue("$revision", expectedRevision);
+            retry.Parameters.AddWithValue("$subtitle", (object?)subtitleId ?? DBNull.Value);
+            retry.Parameters.AddWithValue("$bilingual", bilingual ? 1 : 0);
+            retry.Parameters.AddWithValue("$queued", WorkbenchOperationStatus.Queued.ToString());
+            retry.Parameters.AddWithValue("$failed", WorkbenchOperationStatus.Failed.ToString());
+            retry.Parameters.AddWithValue("$updated", now);
+            return retry.ExecuteNonQuery() == 1;
+        }
+    }
+
+    public void MarkOperationRunning(string operationId) => UpdateOperation(operationId, WorkbenchOperationStatus.Running, null);
+    public void MarkOperationCompleted(string operationId) => UpdateOperation(operationId, WorkbenchOperationStatus.Completed, null);
+    public void MarkOperationFailed(string operationId, string error) => UpdateOperation(operationId, WorkbenchOperationStatus.Failed, error);
+
+    private void UpdateOperation(string operationId, WorkbenchOperationStatus status, string? error)
+    {
+        lock (_gate)
+        {
+            using var connection = Open();
+            using var command = connection.CreateCommand();
+            command.CommandText = "UPDATE operations SET status=$status,error=$error,updated_at=$updated WHERE operation_id=$id";
+            command.Parameters.AddWithValue("$id", operationId);
+            command.Parameters.AddWithValue("$status", status.ToString());
+            command.Parameters.AddWithValue("$error", (object?)error ?? DBNull.Value);
+            command.Parameters.AddWithValue("$updated", DateTimeOffset.UtcNow.ToString("O"));
+            command.ExecuteNonQuery();
+        }
+    }
+
+    public void MarkRunningOperationsAsFailed()
+    {
+        lock (_gate)
+        {
+            using var connection = Open();
+            using var command = connection.CreateCommand();
+            command.CommandText = "UPDATE operations SET status=$failed, error=$error, updated_at=$updated WHERE status=$running";
+            command.Parameters.AddWithValue("$failed", WorkbenchOperationStatus.Failed.ToString());
+            command.Parameters.AddWithValue("$running", WorkbenchOperationStatus.Running.ToString());
+            command.Parameters.AddWithValue("$error", "服务重启时操作中断，可重试。");
+            command.Parameters.AddWithValue("$updated", DateTimeOffset.UtcNow.ToString("O"));
+            command.ExecuteNonQuery();
         }
     }
 
@@ -244,8 +303,9 @@ public sealed class WorkbenchStore
         {
             using var connection = Open();
             using var command = connection.CreateCommand();
-            command.CommandText = "SELECT o.operation_id,o.task_id,o.kind,o.expected_revision,o.subtitle_id,o.bilingual FROM operations o JOIN tasks t ON t.id=o.task_id WHERE o.kind=$kind AND t.status=$status";
+            command.CommandText = "SELECT o.operation_id,o.task_id,o.kind,o.expected_revision,o.subtitle_id,o.bilingual FROM operations o JOIN tasks t ON t.id=o.task_id WHERE o.kind=$kind AND o.status<>$completed AND t.status=$status";
             command.Parameters.AddWithValue("$kind", kind.ToString());
+            command.Parameters.AddWithValue("$completed", WorkbenchOperationStatus.Completed.ToString());
             command.Parameters.AddWithValue("$status", WorkbenchTaskStatus.ExportQueued.ToString());
             using var reader = command.ExecuteReader();
             var result = new List<PendingOperation>();
@@ -254,6 +314,23 @@ public sealed class WorkbenchStore
                 result.Add(new PendingOperation(reader.GetString(0), reader.GetString(1), Enum.Parse<WorkKind>(reader.GetString(2)), reader.GetInt32(3), reader.IsDBNull(4) ? null : reader.GetString(4), reader.GetInt64(5) != 0));
             }
             return result;
+        }
+    }
+
+    public PendingOperation? FindPendingOperation(string taskId, WorkKind kind)
+    {
+        lock (_gate)
+        {
+            using var connection = Open();
+            using var command = connection.CreateCommand();
+            command.CommandText = "SELECT operation_id,task_id,kind,expected_revision,subtitle_id,bilingual FROM operations WHERE task_id=$task AND kind=$kind AND status<>$completed ORDER BY created_at DESC LIMIT 1";
+            command.Parameters.AddWithValue("$task", taskId);
+            command.Parameters.AddWithValue("$kind", kind.ToString());
+            command.Parameters.AddWithValue("$completed", WorkbenchOperationStatus.Completed.ToString());
+            using var reader = command.ExecuteReader();
+            return reader.Read()
+                ? new PendingOperation(reader.GetString(0), reader.GetString(1), Enum.Parse<WorkKind>(reader.GetString(2)), reader.GetInt32(3), reader.IsDBNull(4) ? null : reader.GetString(4), reader.GetInt64(5) != 0)
+                : null;
         }
     }
 
@@ -271,6 +348,24 @@ public sealed class WorkbenchStore
             command.Parameters.AddWithValue("$exporting", WorkbenchTaskStatus.Exporting.ToString());
             command.Parameters.AddWithValue("$exportQueued", WorkbenchTaskStatus.ExportQueued.ToString());
             command.ExecuteNonQuery();
+        }
+    }
+
+    public bool TryCompletePipeline(string taskId, int revision, int itemCount)
+    {
+        lock (_gate)
+        {
+            using var connection = Open();
+            using var command = connection.CreateCommand();
+            command.CommandText = "UPDATE tasks SET revision=$revision, processed_items=$count, total_items=$count, status=$status, stage=$stage, error=NULL, updated_at=$updated WHERE id=$id AND status<>$cancelled";
+            command.Parameters.AddWithValue("$id", taskId);
+            command.Parameters.AddWithValue("$revision", revision);
+            command.Parameters.AddWithValue("$count", itemCount);
+            command.Parameters.AddWithValue("$status", WorkbenchTaskStatus.AwaitingReview.ToString());
+            command.Parameters.AddWithValue("$stage", "AwaitingReview");
+            command.Parameters.AddWithValue("$cancelled", WorkbenchTaskStatus.Cancelled.ToString());
+            command.Parameters.AddWithValue("$updated", DateTimeOffset.UtcNow.ToString("O"));
+            return command.ExecuteNonQuery() == 1;
         }
     }
 
@@ -345,7 +440,7 @@ public sealed class WorkbenchStore
             using var transaction = connection.BeginTransaction();
             var task = GetTaskUnsafe(taskId, connection, transaction);
             var current = GetSubtitlesUnsafe(taskId, task?.Revision ?? 0, connection, transaction);
-            if (task is null || task.Revision != expectedRevision || current is null || current.Items.All(i => i.Id != itemId))
+            if (task is null || task.Status == WorkbenchTaskStatus.Cancelled || task.Revision != expectedRevision || current is null || current.Items.All(i => i.Id != itemId))
             {
                 transaction.Rollback();
                 newRevision = task?.Revision ?? 0;
@@ -364,6 +459,9 @@ public sealed class WorkbenchStore
                 insert.ExecuteNonQuery();
             }
             task.Revision = revision;
+            task.Status = WorkbenchTaskStatus.AwaitingReview;
+            task.Stage = "AwaitingReview";
+            task.Error = null;
             SaveTaskUnsafe(connection, transaction, task);
             transaction.Commit();
             newRevision = revision;

@@ -31,7 +31,7 @@ public sealed class MediaProbe
                 RedirectStandardError = true,
                 CreateNoWindow = true
             };
-            foreach (var arg in new[] { "-v", "error", "-show_entries", "format=format_name,duration:stream=codec_type,codec_name,channels", "-of", "json", path })
+            foreach (var arg in new[] { "-v", "error", "-show_entries", "format=format_name,duration:format_tags=major_brand:stream=codec_type,codec_name,channels", "-of", "json", path })
                 process.StartInfo.ArgumentList.Add(arg);
             process.Start();
             var output = await process.StandardOutput.ReadToEndAsync(cancellationToken);
@@ -44,7 +44,12 @@ public sealed class MediaProbe
             var formatNames = root.TryGetProperty("format", out var formatInfo) && formatInfo.TryGetProperty("format_name", out var formatNameElement)
                 ? formatNameElement.GetString()?.Split(',', StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries) ?? []
                 : [];
-            if (!formatNames.Contains("mp4", StringComparer.OrdinalIgnoreCase)) return Invalid("文件容器不是 MP4。请上传原始 MP4 文件。");
+            var majorBrand = formatInfo.TryGetProperty("tags", out var tags) && tags.TryGetProperty("major_brand", out var brandElement)
+                ? brandElement.GetString()?.Trim()
+                : null;
+            var mp4Brands = new[] { "isom", "iso2", "iso3", "iso4", "iso5", "iso6", "mp41", "mp42", "avc1", "M4V" };
+            if (!formatNames.Contains("mp4", StringComparer.OrdinalIgnoreCase) || !mp4Brands.Contains(majorBrand, StringComparer.OrdinalIgnoreCase))
+                return Invalid("文件容器不是 MP4。请上传原始 MP4 文件。");
             var duration = root.TryGetProperty("format", out var format) && format.TryGetProperty("duration", out var durationElement) && double.TryParse(durationElement.GetString(), NumberStyles.Float, CultureInfo.InvariantCulture, out var parsedDuration)
                 ? parsedDuration
                 : 0;
