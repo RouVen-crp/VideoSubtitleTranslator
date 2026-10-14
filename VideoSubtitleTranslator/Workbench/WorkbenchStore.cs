@@ -92,12 +92,41 @@ public sealed class WorkbenchStore
                     operation_id TEXT PRIMARY KEY,
                     task_id TEXT NOT NULL,
                     kind TEXT NOT NULL,
+                    expected_revision INTEGER NOT NULL DEFAULT 0,
+                    subtitle_id TEXT NULL,
+                    bilingual INTEGER NOT NULL DEFAULT 0,
                     created_at TEXT NOT NULL,
                     FOREIGN KEY(task_id) REFERENCES tasks(id)
                 );
                 """;
             command.ExecuteNonQuery();
+            EnsureColumn(connection, "operations", "expected_revision", "INTEGER NOT NULL DEFAULT 0");
+            EnsureColumn(connection, "operations", "subtitle_id", "TEXT NULL");
+            EnsureColumn(connection, "operations", "bilingual", "INTEGER NOT NULL DEFAULT 0");
         }
+    }
+
+    private static void EnsureColumn(SqliteConnection connection, string table, string column, string definition)
+    {
+        using var check = connection.CreateCommand();
+        check.CommandText = $"PRAGMA table_info({table})";
+        var exists = false;
+        using (var reader = check.ExecuteReader())
+        {
+            while (reader.Read())
+            {
+                if (string.Equals(reader.GetString(1), column, StringComparison.OrdinalIgnoreCase))
+                {
+                    exists = true;
+                    break;
+                }
+            }
+        }
+        if (exists) return;
+
+        using var alter = connection.CreateCommand();
+        alter.CommandText = $"ALTER TABLE {table} ADD COLUMN {column} {definition}";
+        alter.ExecuteNonQuery();
     }
 
     public IReadOnlyList<WorkbenchTask> ListTasks()
@@ -191,18 +220,40 @@ public sealed class WorkbenchStore
         }
     }
 
-    public bool TryBeginOperation(string operationId, string taskId, string kind)
+    public bool TryBeginOperation(string operationId, string taskId, WorkKind kind, int expectedRevision = 0, string? subtitleId = null, bool bilingual = false)
     {
         lock (_gate)
         {
             using var connection = Open();
             using var command = connection.CreateCommand();
-            command.CommandText = "INSERT OR IGNORE INTO operations(operation_id, task_id, kind, created_at) VALUES($id,$task,$kind,$created)";
+            command.CommandText = "INSERT OR IGNORE INTO operations(operation_id, task_id, kind, expected_revision, subtitle_id, bilingual, created_at) VALUES($id,$task,$kind,$revision,$subtitle,$bilingual,$created)";
             command.Parameters.AddWithValue("$id", operationId);
             command.Parameters.AddWithValue("$task", taskId);
-            command.Parameters.AddWithValue("$kind", kind);
+            command.Parameters.AddWithValue("$kind", kind.ToString());
+            command.Parameters.AddWithValue("$revision", expectedRevision);
+            command.Parameters.AddWithValue("$subtitle", (object?)subtitleId ?? DBNull.Value);
+            command.Parameters.AddWithValue("$bilingual", bilingual ? 1 : 0);
             command.Parameters.AddWithValue("$created", DateTimeOffset.UtcNow.ToString("O"));
             return command.ExecuteNonQuery() == 1;
+        }
+    }
+
+    public IReadOnlyList<PendingOperation> FindPendingOperations(WorkKind kind)
+    {
+        lock (_gate)
+        {
+            using var connection = Open();
+            using var command = connection.CreateCommand();
+            command.CommandText = "SELECT o.operation_id,o.task_id,o.kind,o.expected_revision,o.subtitle_id,o.bilingual FROM operations o JOIN tasks t ON t.id=o.task_id WHERE o.kind=$kind AND t.status=$status";
+            command.Parameters.AddWithValue("$kind", kind.ToString());
+            command.Parameters.AddWithValue("$status", WorkbenchTaskStatus.ExportQueued.ToString());
+            using var reader = command.ExecuteReader();
+            var result = new List<PendingOperation>();
+            while (reader.Read())
+            {
+                result.Add(new PendingOperation(reader.GetString(0), reader.GetString(1), Enum.Parse<WorkKind>(reader.GetString(2)), reader.GetInt32(3), reader.IsDBNull(4) ? null : reader.GetString(4), reader.GetInt64(5) != 0));
+            }
+            return result;
         }
     }
 
@@ -212,12 +263,13 @@ public sealed class WorkbenchStore
         {
             using var connection = Open();
             using var command = connection.CreateCommand();
-            command.CommandText = "UPDATE tasks SET status=$interrupted, error=$error, updated_at=$updated WHERE status IN ($processing,$exporting)";
+            command.CommandText = "UPDATE tasks SET status=CASE WHEN status=$processing THEN $interrupted ELSE $exportQueued END, error=$error, updated_at=$updated WHERE status IN ($processing,$exporting,$exportQueued)";
             command.Parameters.AddWithValue("$interrupted", WorkbenchTaskStatus.Interrupted.ToString());
             command.Parameters.AddWithValue("$error", "服务重启时任务正在执行；请确认可能产生的 API 费用后恢复。");
             command.Parameters.AddWithValue("$updated", DateTimeOffset.UtcNow.ToString("O"));
             command.Parameters.AddWithValue("$processing", WorkbenchTaskStatus.Processing.ToString());
             command.Parameters.AddWithValue("$exporting", WorkbenchTaskStatus.Exporting.ToString());
+            command.Parameters.AddWithValue("$exportQueued", WorkbenchTaskStatus.ExportQueued.ToString());
             command.ExecuteNonQuery();
         }
     }

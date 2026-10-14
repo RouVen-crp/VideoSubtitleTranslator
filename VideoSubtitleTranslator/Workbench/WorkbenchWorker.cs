@@ -6,7 +6,7 @@ using VideoSubtitleTranslator.Pipeline;
 
 namespace VideoSubtitleTranslator.Workbench;
 
-public sealed record WorkCommand(string TaskId, string Kind, int ExpectedRevision = 0, string? SubtitleId = null, bool Bilingual = false, string? OperationId = null);
+public sealed record WorkCommand(string TaskId, WorkKind Kind, int ExpectedRevision = 0, string? SubtitleId = null, bool Bilingual = false, string? OperationId = null);
 
 public sealed class WorkbenchWorker : BackgroundService
 {
@@ -27,7 +27,7 @@ public sealed class WorkbenchWorker : BackgroundService
     public bool Cancel(string taskId)
     {
         var task = _store.GetTask(taskId);
-        if (task is null) return false;
+        if (task is null || task.Status is not (WorkbenchTaskStatus.Queued or WorkbenchTaskStatus.Processing or WorkbenchTaskStatus.ExportQueued or WorkbenchTaskStatus.Exporting)) return false;
         task.Status = WorkbenchTaskStatus.Cancelled;
         task.Stage = "Cancelled";
         task.Error = "任务已取消；已发送给提供商的 API 请求仍可能完成并计费。";
@@ -40,7 +40,9 @@ public sealed class WorkbenchWorker : BackgroundService
     {
         _store.MarkProcessingAsInterrupted();
         foreach (var queued in _store.FindByStatus(WorkbenchTaskStatus.Queued))
-            await EnqueueAsync(new WorkCommand(queued.Id, "pipeline", OperationId: queued.OperationId), stoppingToken);
+            await EnqueueAsync(new WorkCommand(queued.Id, WorkKind.Pipeline, OperationId: queued.OperationId), stoppingToken);
+        foreach (var pending in _store.FindPendingOperations(WorkKind.Export))
+            await EnqueueAsync(new WorkCommand(pending.TaskId, pending.Kind, pending.ExpectedRevision, pending.SubtitleId, pending.Bilingual, pending.OperationId), stoppingToken);
 
         await foreach (var command in _commands.Reader.ReadAllAsync(stoppingToken))
         {
@@ -61,9 +63,9 @@ public sealed class WorkbenchWorker : BackgroundService
         {
             switch (command.Kind)
             {
-                case "pipeline": await RunPipelineAsync(task, linked.Token); break;
-                case "retranslate": await RunRetranslationAsync(task, command, linked.Token); break;
-                case "export": await RunExportAsync(task, command, linked.Token); break;
+                case WorkKind.Pipeline: await RunPipelineAsync(task, linked.Token); break;
+                case WorkKind.Retranslate: await RunRetranslationAsync(task, command, linked.Token); break;
+                case WorkKind.Export: await RunExportAsync(task, command, linked.Token); break;
                 default: throw new InvalidOperationException($"未知工作命令：{command.Kind}");
             }
         }
@@ -100,11 +102,13 @@ public sealed class WorkbenchWorker : BackgroundService
         _store.SaveTask(task);
         var document = await _pipeline.ExecuteAsync(task, progress =>
         {
+            if (cancellationToken.IsCancellationRequested) return;
             task.Stage = progress.Stage;
             task.ProcessedItems = progress.ProcessedItems;
             task.TotalItems = Math.Max(task.TotalItems, progress.TotalItems);
             _store.SaveTask(task);
         }, cancellationToken);
+        cancellationToken.ThrowIfCancellationRequested();
         task.Revision = document.Revision;
         task.ProcessedItems = document.Items.Count;
         task.TotalItems = document.Items.Count;
@@ -127,7 +131,7 @@ public sealed class WorkbenchWorker : BackgroundService
         var userPrompt = PromptProvider.Get("Translate/repair_user_prompt_template.md")
             .Replace("{{COUNT}}", "1", StringComparison.Ordinal)
             .Replace("{{LINES}}", item.SourceText, StringComparison.Ordinal);
-        var raw = await ApiCaller.CallApi(config.Llm.Model, systemPrompt, userPrompt);
+        var raw = await ApiCaller.CallApi(config.Llm.Model, systemPrompt, userPrompt, cancellationToken);
         using var json = JsonDocument.Parse(ExtractJson(raw));
         var translation = json.RootElement.GetProperty("translations")[0].GetString();
         if (string.IsNullOrWhiteSpace(translation)) throw new InvalidDataException("模型未返回有效的单句翻译。");

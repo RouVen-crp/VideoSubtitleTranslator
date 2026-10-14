@@ -31,7 +31,7 @@ public sealed class MediaProbe
                 RedirectStandardError = true,
                 CreateNoWindow = true
             };
-            foreach (var arg in new[] { "-v", "error", "-show_entries", "format=duration:stream=codec_type,codec_name,channels", "-of", "json", path })
+            foreach (var arg in new[] { "-v", "error", "-show_entries", "format=format_name,duration:stream=codec_type,codec_name,channels", "-of", "json", path })
                 process.StartInfo.ArgumentList.Add(arg);
             process.Start();
             var output = await process.StandardOutput.ReadToEndAsync(cancellationToken);
@@ -41,6 +41,10 @@ public sealed class MediaProbe
 
             using var document = JsonDocument.Parse(output);
             var root = document.RootElement;
+            var formatNames = root.TryGetProperty("format", out var formatInfo) && formatInfo.TryGetProperty("format_name", out var formatNameElement)
+                ? formatNameElement.GetString()?.Split(',', StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries) ?? []
+                : [];
+            if (!formatNames.Contains("mp4", StringComparer.OrdinalIgnoreCase)) return Invalid("文件容器不是 MP4。请上传原始 MP4 文件。");
             var duration = root.TryGetProperty("format", out var format) && format.TryGetProperty("duration", out var durationElement) && double.TryParse(durationElement.GetString(), NumberStyles.Float, CultureInfo.InvariantCulture, out var parsedDuration)
                 ? parsedDuration
                 : 0;

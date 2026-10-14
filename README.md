@@ -245,6 +245,8 @@ docker compose up --build
 
 Web 首版只接受可播放的 H.264/AAC MP4，最大 500 MiB、最长 10 分钟。服务绑定到 `127.0.0.1`，可通过 `VST_BIND_ADDRESS`、`VST_WEB_PORT` 和 `VST_DATA_DIR` 调整。Whisper 模型继续使用现有 Python/Whisper 缓存；首次使用某模型会产生下载和本地缓存时间。Web 页面只接收状态和字幕内容，API Key 始终留在服务端。
 
+本地页面源码位于 `WebClient/`，使用 Vue 3、TypeScript 和 Vite；Docker 构建时会先生成静态资源，再由 ASP.NET Core 提供给工作台。
+
 任务在后台单实例队列中执行。刷新或关闭页面不会停止任务；服务重启会把执行中的任务标为“中断”，由用户确认可能的重复 API 费用后恢复。导出会固定引用某个字幕 revision，后续编辑只会把旧导出标记为过期，不会覆盖历史文件。
 
 ## 提示词维护

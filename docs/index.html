@@ -1,0 +1,33 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>VideoSubtitleTranslator — local Web workbench</title>
+  <link rel="stylesheet" href="styles.css">
+</head>
+<body>
+  <main class="shell">
+    <header>
+      <p class="eyebrow">VideoSubtitleTranslator</p>
+      <h1>Review subtitles before you export.</h1>
+      <p class="lede">A local-first workbench for translating short English MP4 videos while keeping the source timeline and revision history visible.</p>
+      <p class="notice">Interactive demo — no AI processing is performed.</p>
+    </header>
+    <section class="workspace" aria-label="Subtitle editor demo">
+      <div class="video-card">
+        <div class="video-placeholder"><span>▶</span><small>Sample playback surface</small></div>
+        <div class="transport"><button id="playButton">Play sample</button><input id="seek" type="range" min="0" max="10000" value="0"><output id="clock">00:00</output></div>
+      </div>
+      <div class="editor-card">
+        <div class="card-heading"><span>English → 中文</span><span id="revision">Revision 3</span></div>
+        <div id="rows"></div>
+        <div class="actions"><button id="saveButton">Save revision</button><button id="downloadButton" class="secondary">Download SRT</button></div>
+        <p id="status" class="status" role="status"></p>
+      </div>
+    </section>
+    <footer>Run the real workbench locally with Docker; your API key and media stay on your machine.</footer>
+  </main>
+  <script src="demo.js"></script>
+</body>
+</html>

@@ -27,4 +27,26 @@ public sealed class WorkbenchStoreTests
             if (Directory.Exists(directory)) Directory.Delete(directory, true);
         }
     }
+
+    [Fact]
+    public void Pending_export_operation_survives_restart_recovery_lookup()
+    {
+        var directory = Path.Combine(Path.GetTempPath(), "vst-export-" + Guid.NewGuid().ToString("N"));
+        try
+        {
+            var store = new WorkbenchStore(new WorkbenchOptions { DataDirectory = directory });
+            var task = new WorkbenchTask { Id = "task", OperationId = "upload", WorkspacePath = directory, Status = WorkbenchTaskStatus.ExportQueued };
+            Assert.True(store.TryCreateTask(task));
+            Assert.True(store.TryBeginOperation("export-1", task.Id, WorkKind.Export, expectedRevision: 3, bilingual: true));
+
+            var pending = Assert.Single(store.FindPendingOperations(WorkKind.Export));
+            Assert.Equal("export-1", pending.OperationId);
+            Assert.Equal(3, pending.ExpectedRevision);
+            Assert.True(pending.Bilingual);
+        }
+        finally
+        {
+            if (Directory.Exists(directory)) Directory.Delete(directory, true);
+        }
+    }
 }

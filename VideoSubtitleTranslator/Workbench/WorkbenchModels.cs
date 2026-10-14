@@ -62,7 +62,14 @@ public sealed class ExportRecord
     public string OperationId { get; set; } = string.Empty;
 }
 
-public sealed record CreateTaskResult(WorkbenchTask Task, bool AlreadyExisted);
+public enum WorkKind
+{
+    Pipeline,
+    Retranslate,
+    Export
+}
+
+public sealed record PendingOperation(string OperationId, string TaskId, WorkKind Kind, int ExpectedRevision, string? SubtitleId, bool Bilingual);
 
 public sealed record SaveSubtitleRequest(int ExpectedRevision, IReadOnlyList<SubtitleItem> Items);
 

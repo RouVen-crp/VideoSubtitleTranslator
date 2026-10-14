@@ -115,8 +115,8 @@ internal static class WorkbenchEndpoints
                     existing = store.GetTaskByOperationId(operationId);
                     return existing is null ? Results.Conflict(new ApiError("duplicate_operation", "上传操作已存在，但任务状态暂不可读取。")) : Results.Accepted($"/api/tasks/{existing.Id}", existing);
                 }
-                store.TryBeginOperation(operationId, id, "pipeline");
-                await worker.EnqueueAsync(new WorkCommand(id, "pipeline", OperationId: operationId), cancellationToken);
+                store.TryBeginOperation(operationId, id, WorkKind.Pipeline);
+                await worker.EnqueueAsync(new WorkCommand(id, WorkKind.Pipeline, OperationId: operationId), cancellationToken);
                 return Results.Accepted($"/api/tasks/{id}", task);
             }
             catch
@@ -140,12 +140,12 @@ internal static class WorkbenchEndpoints
             if (task.Status is not (WorkbenchTaskStatus.Interrupted or WorkbenchTaskStatus.Failed))
                 return Results.Conflict(new ApiError("cannot_resume", "只有中断或失败任务可以恢复。"));
             var operationId = $"resume:{taskId}:{task.Revision}:{Guid.NewGuid():N}";
-            store.TryBeginOperation(operationId, taskId, "resume");
+            store.TryBeginOperation(operationId, taskId, WorkKind.Pipeline);
             task.Status = WorkbenchTaskStatus.Queued;
             task.Stage = "Queued";
             task.Error = "恢复可能重试未提交完成的翻译请求，并产生新的 API 费用。";
             store.SaveTask(task);
-            await worker.EnqueueAsync(new WorkCommand(taskId, "pipeline", task.Revision, OperationId: operationId), cancellationToken);
+            await worker.EnqueueAsync(new WorkCommand(taskId, WorkKind.Pipeline, task.Revision, OperationId: operationId), cancellationToken);
             return Results.Accepted($"/api/tasks/{taskId}", task);
         });
 
@@ -186,8 +186,8 @@ internal static class WorkbenchEndpoints
             if (document.Revision != request.ExpectedRevision || document.Items.All(i => i.Id != request.SubtitleId))
                 return Results.Conflict(new ApiError("revision_conflict", "字幕已被修改，请刷新后重试。"));
             var operationId = string.IsNullOrWhiteSpace(request.OperationId) ? $"retranslate:{taskId}:{request.SubtitleId}:{request.ExpectedRevision}" : request.OperationId;
-            if (store.TryBeginOperation(operationId, taskId, "retranslate"))
-                await worker.EnqueueAsync(new WorkCommand(taskId, "retranslate", request.ExpectedRevision, request.SubtitleId, OperationId: operationId), cancellationToken);
+            if (store.TryBeginOperation(operationId, taskId, WorkKind.Retranslate, request.ExpectedRevision, request.SubtitleId))
+                await worker.EnqueueAsync(new WorkCommand(taskId, WorkKind.Retranslate, request.ExpectedRevision, request.SubtitleId, OperationId: operationId), cancellationToken);
             return Results.Accepted($"/api/tasks/{taskId}", new { operationId, taskId, request.ExpectedRevision });
         });
 
@@ -205,12 +205,12 @@ internal static class WorkbenchEndpoints
             if (task is null || document is null) return Results.NotFound(new ApiError("subtitle_not_ready", "字幕尚未生成。"));
             if (document.Revision != request.ExpectedRevision) return Results.Conflict(new ApiError("revision_conflict", "字幕已更新，请重新选择导出版本。"));
             var operationId = string.IsNullOrWhiteSpace(request.OperationId) ? $"export:{taskId}:{request.ExpectedRevision}:{request.Bilingual}" : request.OperationId;
-            if (store.TryBeginOperation(operationId, taskId, "export"))
+            if (store.TryBeginOperation(operationId, taskId, WorkKind.Export, request.ExpectedRevision, bilingual: request.Bilingual))
             {
                 task.Status = WorkbenchTaskStatus.ExportQueued;
                 task.Stage = "ExportQueued";
                 store.SaveTask(task);
-                await worker.EnqueueAsync(new WorkCommand(taskId, "export", request.ExpectedRevision, Bilingual: request.Bilingual, OperationId: operationId), cancellationToken);
+                await worker.EnqueueAsync(new WorkCommand(taskId, WorkKind.Export, request.ExpectedRevision, Bilingual: request.Bilingual, OperationId: operationId), cancellationToken);
             }
             return Results.Accepted($"/api/tasks/{taskId}/exports", new { operationId, taskId, request.ExpectedRevision, request.Bilingual });
         });

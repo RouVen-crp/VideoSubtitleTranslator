@@ -19,7 +19,7 @@ public static class ApiCaller
         }
     }
 
-    public static async Task<string> CallApi(string modelType, string systemRolePrompt, string prompt)
+    public static async Task<string> CallApi(string modelType, string systemRolePrompt, string prompt, CancellationToken cancellationToken = default)
     {
         var maxRetries = Math.Max(0, GlobalRuntimeConfig.Current.Llm.RetryCount);
         const int baseDelayMs = 1000;
@@ -45,10 +45,10 @@ public static class ApiCaller
 
                 var json = JsonSerializer.Serialize(requestBody);
                 var content = new StringContent(json, Encoding.UTF8, "application/json");
-                var response = await client.PostAsync(GlobalRuntimeConfig.Current.Llm.BaseUrl, content);
+                var response = await client.PostAsync(GlobalRuntimeConfig.Current.Llm.BaseUrl, content, cancellationToken);
                 response.EnsureSuccessStatusCode();
 
-                var responseJson = await response.Content.ReadAsStringAsync();
+                var responseJson = await response.Content.ReadAsStringAsync(cancellationToken);
                 using var doc = JsonDocument.Parse(responseJson);
                 return doc.RootElement
                     .GetProperty("choices")[0]
@@ -64,15 +64,19 @@ public static class ApiCaller
                     throw;
 
                 var delay = baseDelayMs * (int)Math.Pow(2, attempt);
-                await Task.Delay(delay);
+                await Task.Delay(delay, cancellationToken);
                 Console.WriteLine($"请求失败，第{attempt + 1}次重试，等待{delay}ms...");
+            }
+            catch (OperationCanceledException) when (cancellationToken.IsCancellationRequested)
+            {
+                throw;
             }
             catch (Exception ex) when (ex is TaskCanceledException or TimeoutException)
             {
                 if (attempt == maxRetries) throw;
 
                 var delay = baseDelayMs * (int)Math.Pow(2, attempt);
-                await Task.Delay(delay);
+                await Task.Delay(delay, cancellationToken);
                 Console.WriteLine($"请求超时，第{attempt + 1}次重试，等待{delay}ms...");
             }
             catch (Exception ex) when (attempt == maxRetries)
