@@ -1,6 +1,9 @@
+using System;
 using System.Collections.Generic;
 using System.Diagnostics;
 using System.IO;
+using System.Linq;
+using System.Runtime.InteropServices;
 
 namespace VideoSubtitleTranslator.Pipeline;
 
@@ -67,10 +70,10 @@ public sealed class DefaultBurnSubtitleStep : BurnSubtitleStepBase
             : string.Empty;
 
         if (!string.Equals(qualityPreset?.Trim(), "high", StringComparison.OrdinalIgnoreCase) && !targetBitrateKbps.HasValue)
-            return $"-i \"{dirs.VideoPath}\" -vf subtitles='{subtitlePath}' -c:a copy \"{outputPath}\"";
+            return $"-i \"{dirs.VideoPath}\" -vf \"subtitles='{subtitlePath}'\" -c:a copy \"{outputPath}\"";
 
         return
-            $"-i \"{dirs.VideoPath}\" -vf subtitles='{subtitlePath}' -c:v {encoder}{bitrateArgs} -c:a copy \"{outputPath}\"";
+            $"-i \"{dirs.VideoPath}\" -vf \"subtitles='{subtitlePath}'\" -c:v {encoder}{bitrateArgs} -c:a copy \"{outputPath}\"";
     }
 
     internal static string ResolveSubtitlePath(WorkDirs dirs)
@@ -85,6 +88,19 @@ public sealed class DefaultBurnSubtitleStep : BurnSubtitleStepBase
         Console.WriteLine($"[burn] Using subtitle: {fallback}");
         return fallback;
     }
+
+    internal static readonly Lazy<string> ResolvedEncoder = new(() =>
+    {
+        var configured = GlobalRuntimeConfig.Current.Burn.VideoEncoder;
+        if (!string.IsNullOrEmpty(configured) &&
+            !string.Equals(configured, "auto", StringComparison.OrdinalIgnoreCase))
+            return configured;
+
+        if (RuntimeInformation.IsOSPlatform(OSPlatform.OSX))
+            return "h264_videotoolbox";
+
+        return "libx264";
+    });
 
     private static void Burn(WorkDirs dirs)
     {
@@ -122,13 +138,32 @@ public sealed class DefaultBurnSubtitleStep : BurnSubtitleStepBase
             }
         }
 
+        var encoder = ResolvedEncoder.Value;
         var subtitlePath = ResolveSubtitlePath(dirs);
-        var ffmpegArgs = BuildFfmpegArgs(dirs, finalVideoPath, burnConfig.VideoEncoder, qualityPreset, targetBitrateKbps, subtitlePath);
+        var safeSubtitlePath = subtitlePath;
+
+        // ffmpeg 滤镜解析器对非 ASCII 路径兼容性差，复制到 ASCII-only 临时目录
+        if (subtitlePath.Any(c => c > 127))
+        {
+            var ext = Path.GetExtension(subtitlePath);
+            var safeDir = Path.Combine(Path.GetTempPath(), "vst_burn");
+            Directory.CreateDirectory(safeDir);
+            safeSubtitlePath = Path.Combine(safeDir, "subtitle" + ext);
+            File.Copy(subtitlePath, safeSubtitlePath, true);
+            Console.WriteLine($"[burn] subtitle copied to ASCII-safe path: {safeSubtitlePath}");
+        }
+
+        var ffmpegArgs = BuildFfmpegArgs(dirs, finalVideoPath, encoder, qualityPreset, targetBitrateKbps, safeSubtitlePath);
         Console.WriteLine(
-            $"[burn] qualityPreset={qualityPreset}, encoder={burnConfig.VideoEncoder}, bitrateFloorEnabled={burnConfig.EnforceSourceBitrateFloor}");
+            $"[burn] qualityPreset={qualityPreset}, encoder={encoder}, bitrateFloorEnabled={burnConfig.EnforceSourceBitrateFloor}");
 
         using var process = Process.Start("ffmpeg", ffmpegArgs);
         process?.WaitForExit();
+
+        if (safeSubtitlePath != subtitlePath)
+        {
+            try { File.Delete(safeSubtitlePath); } catch { }
+        }
     }
 
     public override Dictionary<string, string> Execute(Dictionary<string, string> context)

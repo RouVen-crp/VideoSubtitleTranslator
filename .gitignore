@@ -45,5 +45,4 @@ Thumbs.db
 **/*.temp
 
 # agents and dev docs
-docs/
-AGENTS.md
+

@@ -11,7 +11,7 @@ public class BurnSubtitleDualTrackTests
         var args = DefaultBurnSubtitleStep.BuildFfmpegArgs(
             dirs, "/tmp/vid/out.mp4", "h264_nvenc", "high", 5000, "/tmp/vid/dual_subtitle.ass");
 
-        Assert.Contains("subtitles='/tmp/vid/dual_subtitle.ass'", args);
+        Assert.Contains("\"subtitles='/tmp/vid/dual_subtitle.ass'\"", args);
     }
 
     [Fact]
@@ -21,7 +21,7 @@ public class BurnSubtitleDualTrackTests
         var args = DefaultBurnSubtitleStep.BuildFfmpegArgs(
             dirs, "/tmp/vid/out.mp4", "h264_nvenc", "auto", null, "/tmp/vid/translated_subtitle.srt");
 
-        Assert.Contains("subtitles='/tmp/vid/translated_subtitle.srt'", args);
+        Assert.Contains("\"subtitles='/tmp/vid/translated_subtitle.srt'\"", args);
         Assert.Contains("-c:a copy", args);
     }
 
