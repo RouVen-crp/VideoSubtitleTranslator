@@ -2,6 +2,7 @@ using System;
 using System.Collections.Generic;
 using System.IO;
 using VideoSubtitleTranslator.Pipeline;
+using VideoSubtitleTranslator.Workbench;
 
 namespace VideoSubtitleTranslator;
 
@@ -71,10 +72,16 @@ internal class Program
         );
     }
 
-    private static void Main(string[] args)
+    private static async Task Main(string[] args)
     {
         LoadEnv();
         var (mode, positionalArgs) = ParseArgs(args);
+
+        if (args.Any(a => string.Equals(a, "--web", StringComparison.OrdinalIgnoreCase)))
+        {
+            await WorkbenchHost.RunAsync(args);
+            return;
+        }
 
         if (positionalArgs.Count < 2)
         {

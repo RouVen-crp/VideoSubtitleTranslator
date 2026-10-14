@@ -225,6 +225,28 @@ LLM_MODEL=...                   # 可选
 - `dual_subtitle.ass`：ASS 格式双轨字幕（白字译文 + 灰字注释）。
 - `<中文标题>.mp4`：烧录双轨字幕后的最终视频。
 
+## 本地 Web 工作台
+
+首版 Web 工作台运行在本机回环地址，默认通过 SQLite 保存任务、字幕修订和导出记录，并把每个任务的输入与阶段产物放在独立目录中：
+
+```bash
+dotnet restore VideoSubtitleTranslator/VideoSubtitleTranslator.csproj
+dotnet run --project VideoSubtitleTranslator -- --web
+# 浏览器打开 http://127.0.0.1:5155
+```
+
+也可以使用 Windows Docker Desktop：
+
+```bash
+copy VideoSubtitleTranslator/.env.example .env
+# 在 .env 设置服务端 DEEPSEEK_API_KEY
+docker compose up --build
+```
+
+Web 首版只接受可播放的 H.264/AAC MP4，最大 500 MiB、最长 10 分钟。服务绑定到 `127.0.0.1`，可通过 `VST_BIND_ADDRESS`、`VST_WEB_PORT` 和 `VST_DATA_DIR` 调整。Whisper 模型继续使用现有 Python/Whisper 缓存；首次使用某模型会产生下载和本地缓存时间。Web 页面只接收状态和字幕内容，API Key 始终留在服务端。
+
+任务在后台单实例队列中执行。刷新或关闭页面不会停止任务；服务重启会把执行中的任务标为“中断”，由用户确认可能的重复 API 费用后恢复。导出会固定引用某个字幕 revision，后续编辑只会把旧导出标记为过期，不会覆盖历史文件。
+
 ## 提示词维护
 
 固定提示词已统一放在 `VideoSubtitleTranslator/Prompts/` 目录，运行时直接读取 Markdown 提示词文件（`*.md`）：

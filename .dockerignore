@@ -1,0 +1,10 @@
+.git
+.gitignore
+.vs
+**/bin
+**/obj
+**/PythonScripts/venv
+data
+downloads
+*.user
+*.suo

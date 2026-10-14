@@ -1,0 +1,22 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+  <meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>VideoSubtitleTranslator 工作台</title>
+  <link rel="stylesheet" href="/styles.css">
+</head>
+<body>
+  <main class="shell">
+    <header><div><p class="eyebrow">LOCAL VIDEO WORKBENCH</p><h1>把英文视频变成可发布的中文字幕视频</h1><p>上传十分钟以内的 H.264/AAC MP4，后台转写与翻译，逐条校对后导出。</p></div><a href="/api/health" class="health" target="_blank">环境检查 ↗</a></header>
+    <section class="card upload-card">
+      <h2>1. 上传视频</h2><p class="muted">文件只保存在本机任务目录；首版限制 500 MiB、10 分钟、MP4/H.264/AAC。</p>
+      <form id="uploadForm"><input id="videoFile" type="file" accept="video/mp4,.mp4" required><button>开始任务</button></form><p id="uploadMessage" class="message"></p>
+    </section>
+    <section class="grid">
+      <section class="card"><div class="section-heading"><h2>任务</h2><button id="refreshButton" class="secondary">刷新</button></div><div id="tasks" class="task-list"></div></section>
+      <section class="card editor-card"><div class="section-heading"><h2>2. 预览与校对</h2><span id="revisionLabel" class="badge">未选择任务</span></div><div id="editorEmpty" class="empty">选择一个已生成字幕的任务开始校对。</div><div id="editor" hidden><video id="video" controls preload="metadata"></video><div id="subtitleList" class="subtitle-list"></div><div class="editor-actions"><button id="saveButton">保存修改</button><button id="exportZhButton" class="secondary">导出中文字幕 MP4</button><button id="exportBiButton" class="secondary">导出中英双语 MP4</button></div><p id="editorMessage" class="message"></p><div id="exports"></div></div></section>
+    </section>
+  </main>
+  <script src="/app.js"></script>
+</body>
+</html>
