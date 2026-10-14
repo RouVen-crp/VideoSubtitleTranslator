@@ -27,7 +27,7 @@ cd VideoSubtitleTranslator
 ./scripts/init_python_venv.sh
 
 # 3. 运行
-dotnet run --project VideoSubtitleTranslator -- "<url>" "<workspace_dir>" --mode meme
+dotnet run -- "<url>" "<workspace_dir>" --mode meme
 ```
 
 ## 初始化 Python 环境
@@ -39,6 +39,19 @@ dotnet run --project VideoSubtitleTranslator -- "<url>" "<workspace_dir>" --mode
 ```
 
 该脚本会创建 `PythonScripts/venv` 并安装 `openai-whisper`、`srt`。
+脚本同时兼容 Unix 的 `venv/bin` 和 Windows 的 `venv/Scripts`；可通过
+`PYTHON_CMD=/path/to/python ./scripts/init_python_venv.sh` 指定 Python。
+
+在 Windows PowerShell 中也可以直接执行等价命令：
+
+```powershell
+py -3 -m venv PythonScripts/venv
+& .\PythonScripts\venv\Scripts\python.exe -m pip install -r .\PythonScripts\requirements.txt
+$env:VST_PYTHON_PATH = (Resolve-Path .\PythonScripts\venv\Scripts\python.exe)
+```
+
+主机端不会自动安装 `ffmpeg`、`ffprobe`、`yt-dlp` 或 Python；请先安装这些工具并通过
+`VST_FFMPEG_PATH`、`VST_FFPROBE_PATH`、`VST_YTDLP_PATH`、`VST_PYTHON_PATH` 配置路径。
 
 若系统 `python3` 与 Homebrew 存在兼容问题（如 `pyexpat` 符号缺失），可使用 `uv` 替代：
 
@@ -191,11 +204,14 @@ LLM_MODEL=...                   # 可选
 VST_FFMPEG_PATH=C:\Tools\ffmpeg.exe   # Windows 可选；覆盖 PATH 中的 ffmpeg
 VST_FFPROBE_PATH=C:\Tools\ffprobe.exe # 可选；缺失时 Web 校验会回退到 ffmpeg
 VST_YTDLP_PATH=C:\Tools\yt-dlp.exe    # Windows 可选；覆盖 PATH 中的 yt-dlp
+VST_PYTHON_PATH=C:\path\to\python.exe # Windows 可选；用于 Whisper 字幕提取
+VST_WHISPER_MODEL_PATH=C:\path\to\ggml-large-v3-turbo.bin # 可选；FFmpeg whisper.cpp fallback
+VST_WHISPER_USE_GPU=false             # 可选；FFmpeg whisper.cpp 使用 GPU
 ```
 
 程序启动时自动加载项目目录下的 `.env` 文件。
 
-程序不会自动在宿主机安装 `ffmpeg`、`ffprobe` 或 `yt-dlp`。CLI 默认按 PATH 查找它们；Windows 可以通过上面的环境变量提供绝对路径。Docker 镜像会安装 `ffmpeg`，但 Web 首版只接收本地上传视频，不需要 `yt-dlp`；使用 CLI 的 YouTube 下载流程时仍需提供 `yt-dlp`。
+程序不会自动在宿主机安装 `ffmpeg`、`ffprobe`、`yt-dlp` 或 Whisper/Python 依赖。CLI 默认按 PATH 查找外部工具；Windows 可以通过上面的环境变量提供绝对路径。若 Python/Torch 在 Windows 上无法加载，可使用带 `whisper.cpp` 滤镜的 FFmpeg，并通过 `VST_WHISPER_MODEL_PATH` 指向 `ggml-*.bin` 模型；需要 GPU 时再设置 `VST_WHISPER_USE_GPU=true`。Docker 镜像会安装 `ffmpeg` 和 Python 依赖，但 Web 首版只接收本地上传视频，不需要 `yt-dlp`；使用 CLI 的 YouTube 下载流程时仍需提供 `yt-dlp`。
 
 ## 输出产物
 

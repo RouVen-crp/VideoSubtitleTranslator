@@ -55,7 +55,7 @@ internal static class WorkbenchEndpoints
                 ffprobe = ToolAvailable(options.FfprobePath),
                 ffmpeg = ToolAvailable(options.FfmpegPath),
                 ytDlp = ToolAvailable(options.YtDlpPath),
-                python = ToolAvailable("python3"),
+                python = ToolAvailable(ResolvePythonPath()),
                 probeFallback = !ToolAvailable(options.FfprobePath) && ToolAvailable(options.FfmpegPath)
             },
             configuration = ConfigurationSummary()
@@ -252,6 +252,21 @@ internal static class WorkbenchEndpoints
         var path = Path.Combine(AppContext.BaseDirectory, "Config", "translator.config.json");
         var config = File.Exists(path) ? TranslatorRuntimeConfig.Load(path) : new TranslatorRuntimeConfig();
         return new { llmModel = config.Llm.Model, whisperModel = config.Whisper.Model, apiKeyConfigured = !string.IsNullOrWhiteSpace(Environment.GetEnvironmentVariable(config.Llm.ApiKeyEnv)) };
+    }
+
+    private static string ResolvePythonPath()
+    {
+        var configured = Environment.GetEnvironmentVariable("VST_PYTHON_PATH");
+        if (!string.IsNullOrWhiteSpace(configured)) return configured.Trim().Trim('"');
+
+        var candidates = new[]
+        {
+            Path.Combine(AppContext.BaseDirectory, "PythonScripts", "venv", "Scripts", "python.exe"),
+            Path.Combine(AppContext.BaseDirectory, "PythonScripts", "venv", "bin", "python3"),
+            Path.GetFullPath(Path.Combine(AppContext.BaseDirectory, "..", "..", "..", "PythonScripts", "venv", "Scripts", "python.exe")),
+            Path.GetFullPath(Path.Combine(AppContext.BaseDirectory, "..", "..", "..", "PythonScripts", "venv", "bin", "python3"))
+        };
+        return candidates.FirstOrDefault(File.Exists) ?? "python3";
     }
 
     private static bool ToolAvailable(string name)

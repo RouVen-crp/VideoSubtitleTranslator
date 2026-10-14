@@ -7,8 +7,8 @@ public class ConfigPathResolutionTests
     {
         var (pipelinePath, translatorPath) = Program.ResolveConfigPaths("standard", "/app");
 
-        Assert.Equal("/app/pipeline.config.json", pipelinePath);
-        Assert.Equal("/app/Config/translator.config.json", translatorPath);
+        Assert.Equal(Path.Combine("/app", "pipeline.config.json"), pipelinePath);
+        Assert.Equal(Path.Combine("/app", "Config", "translator.config.json"), translatorPath);
     }
 
     [Fact]
@@ -16,8 +16,8 @@ public class ConfigPathResolutionTests
     {
         var (pipelinePath, translatorPath) = Program.ResolveConfigPaths("meme", "/app");
 
-        Assert.Equal("/app/pipeline_meme.config.json", pipelinePath);
-        Assert.Equal("/app/Config/translator_meme.config.json", translatorPath);
+        Assert.Equal(Path.Combine("/app", "pipeline_meme.config.json"), pipelinePath);
+        Assert.Equal(Path.Combine("/app", "Config", "translator_meme.config.json"), translatorPath);
     }
 
     [Fact]
@@ -25,7 +25,7 @@ public class ConfigPathResolutionTests
     {
         var (pipelinePath, translatorPath) = Program.ResolveConfigPaths("unknown", "/app");
 
-        Assert.Equal("/app/pipeline.config.json", pipelinePath);
-        Assert.Equal("/app/Config/translator.config.json", translatorPath);
+        Assert.Equal(Path.Combine("/app", "pipeline.config.json"), pipelinePath);
+        Assert.Equal(Path.Combine("/app", "Config", "translator.config.json"), translatorPath);
     }
 }

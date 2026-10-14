@@ -6,7 +6,7 @@ namespace VideoSubtitleTranslator.Workbench;
 /// Small SQLite persistence boundary for tasks, subtitle revisions, stage checkpoints, and exports.
 /// All writes are serialized so the single worker and HTTP requests cannot interleave revisions.
 /// </summary>
-public sealed class WorkbenchStore
+public sealed class WorkbenchStore : IDisposable
 {
     private readonly string _connectionString;
     private readonly object _gate = new();
@@ -624,5 +624,13 @@ public sealed class WorkbenchStore
         command.Parameters.AddWithValue("$source", item.SourceText);
         command.Parameters.AddWithValue("$translated", item.TranslatedText);
         command.Parameters.AddWithValue("$review", item.NeedsReview ? 1 : 0);
+    }
+
+    public void Dispose()
+    {
+        lock (_gate)
+        {
+            SqliteConnection.ClearAllPools();
+        }
     }
 }

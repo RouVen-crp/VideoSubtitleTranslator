@@ -29,8 +29,10 @@
   "whisper": {
     "pythonExecutable": "python3",
     "model": "turbo",
+    "modelPath": "",
     "language": "en",
-    "force": false
+    "force": false,
+    "useGpu": false
   },
   "tools": {
     "ffmpegPath": "ffmpeg",

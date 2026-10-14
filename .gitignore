@@ -43,6 +43,7 @@ Thumbs.db
 # Runtime workspace/temp outputs
 **/*.tmp
 **/*.temp
+/.scratch-web/
 
 # agents and dev docs
 

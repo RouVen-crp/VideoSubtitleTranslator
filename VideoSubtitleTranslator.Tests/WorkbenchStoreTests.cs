@@ -10,7 +10,7 @@ public sealed class WorkbenchStoreTests
         var directory = Path.Combine(Path.GetTempPath(), "vst-store-" + Guid.NewGuid().ToString("N"));
         try
         {
-            var store = new WorkbenchStore(new WorkbenchOptions { DataDirectory = directory });
+            using var store = new WorkbenchStore(new WorkbenchOptions { DataDirectory = directory });
             var task = new WorkbenchTask { Id = "task", OperationId = "upload", WorkspacePath = directory };
             Assert.True(store.TryCreateTask(task));
             var first = new List<SubtitleItem> { new() { StartMs = 0, EndMs = 1000, SourceText = "hello", TranslatedText = "你好" } };
@@ -34,7 +34,7 @@ public sealed class WorkbenchStoreTests
         var directory = Path.Combine(Path.GetTempPath(), "vst-export-" + Guid.NewGuid().ToString("N"));
         try
         {
-            var store = new WorkbenchStore(new WorkbenchOptions { DataDirectory = directory });
+            using var store = new WorkbenchStore(new WorkbenchOptions { DataDirectory = directory });
             var task = new WorkbenchTask { Id = "task", OperationId = "upload", WorkspacePath = directory, Status = WorkbenchTaskStatus.ExportQueued };
             Assert.True(store.TryCreateTask(task));
             Assert.True(store.TryBeginOperation("export-1", task.Id, WorkKind.Export, expectedRevision: 3, bilingual: true));
@@ -59,7 +59,7 @@ public sealed class WorkbenchStoreTests
         var directory = Path.Combine(Path.GetTempPath(), "vst-cancel-" + Guid.NewGuid().ToString("N"));
         try
         {
-            var store = new WorkbenchStore(new WorkbenchOptions { DataDirectory = directory });
+            using var store = new WorkbenchStore(new WorkbenchOptions { DataDirectory = directory });
             var task = new WorkbenchTask { Id = "task", OperationId = "upload", WorkspacePath = directory, Status = WorkbenchTaskStatus.AwaitingReview };
             Assert.True(store.TryCreateTask(task));
             var items = new List<SubtitleItem> { new() { StartMs = 0, EndMs = 1000, SourceText = "hello", TranslatedText = "你好" } };
