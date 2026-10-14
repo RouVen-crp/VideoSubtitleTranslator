@@ -33,6 +33,11 @@
     "language": "en",
     "force": false
   },
+  "tools": {
+    "ffmpegPath": "ffmpeg",
+    "ffprobePath": "ffprobe",
+    "ytDlpPath": "yt-dlp"
+  },
   "burn": {
     "enabled": true,
     "videoEncoder": "auto",

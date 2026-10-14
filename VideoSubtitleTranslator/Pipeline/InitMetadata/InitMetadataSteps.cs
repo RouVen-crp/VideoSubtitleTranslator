@@ -37,7 +37,7 @@ public sealed class MetaGetterInitMetadataStep : InitMetadataStepBase
     {
         var startInfo = new ProcessStartInfo
         {
-            FileName = "yt-dlp",
+            FileName = GlobalRuntimeConfig.Current.Tools.YtDlpPath,
             Arguments = $"--js-runtimes node --dump-json \"{url}\"{BuildCookiesArg()}",
             RedirectStandardOutput = true,
             RedirectStandardError = true,

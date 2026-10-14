@@ -9,8 +9,13 @@ public sealed record PipelineProgress(string Stage, int ProcessedItems, int Tota
 public sealed class PipelineExecutor
 {
     private readonly WorkbenchStore _store;
+    private readonly WorkbenchOptions _options;
 
-    public PipelineExecutor(WorkbenchStore store) => _store = store;
+    public PipelineExecutor(WorkbenchStore store, WorkbenchOptions options)
+    {
+        _store = store;
+        _options = options;
+    }
 
     public async Task<SubtitleDocument> ExecuteAsync(WorkbenchTask task, Action<PipelineProgress> progress, CancellationToken cancellationToken)
     {
@@ -24,6 +29,9 @@ public sealed class PipelineExecutor
         var translatorPath = Path.Combine(AppContext.BaseDirectory, "Config", "translator.config.json");
         var translatorConfig = TranslatorRuntimeConfig.Load(translatorPath);
         translatorConfig.Mode = "standard";
+        translatorConfig.Tools.FfmpegPath = _options.FfmpegPath;
+        translatorConfig.Tools.FfprobePath = _options.FfprobePath;
+        translatorConfig.Tools.YtDlpPath = _options.YtDlpPath;
         GlobalRuntimeConfig.Current = translatorConfig;
         var runner = new PipelineRunner(new PipelineRegistry());
         var config = PipelineRunner.LoadConfig(configPath);

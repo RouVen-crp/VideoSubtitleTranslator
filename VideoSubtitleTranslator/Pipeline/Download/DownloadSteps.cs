@@ -38,7 +38,7 @@ public sealed class DefaultDownloadStep : DownloadStepBase
             return;
         }
 
-        using var process = Process.Start("yt-dlp",
+        using var process = Process.Start(GlobalRuntimeConfig.Current.Tools.YtDlpPath,
             $"--write-thumbnail --convert-thumbnails png --skip-download -o \"{dirs.ThumbnailPath}\" \"{videoUrl}\"{BuildCookiesArg()}");
         process?.WaitForExit();
     }
@@ -51,7 +51,7 @@ public sealed class DefaultDownloadStep : DownloadStepBase
             return;
         }
 
-        using var process = Process.Start("yt-dlp",
+        using var process = Process.Start(GlobalRuntimeConfig.Current.Tools.YtDlpPath,
             $"--js-runtimes node --restrict-filenames -o \"{dirs.VideoPath}\" \"{videoUrl}\"{BuildCookiesArg()}");
         process?.WaitForExit();
     }

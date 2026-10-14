@@ -5,6 +5,10 @@ namespace VideoSubtitleTranslator.Workbench;
 
 public sealed class MediaExporter
 {
+    private readonly string _ffmpegPath;
+
+    public MediaExporter(string ffmpegPath = "ffmpeg") => _ffmpegPath = ffmpegPath;
+
     public async Task<ExportRecord> ExportAsync(WorkbenchTask task, SubtitleDocument document, bool bilingual, CancellationToken cancellationToken)
     {
         var exportId = Guid.NewGuid().ToString("N");
@@ -44,13 +48,13 @@ public sealed class MediaExporter
         File.Move(temp, path, true);
     }
 
-    private static async Task RunFfmpegAsync(IReadOnlyList<string> arguments, CancellationToken cancellationToken)
+    private async Task RunFfmpegAsync(IReadOnlyList<string> arguments, CancellationToken cancellationToken)
     {
         using var process = new Process
         {
             StartInfo = new ProcessStartInfo
             {
-                FileName = "ffmpeg",
+                FileName = _ffmpegPath,
                 UseShellExecute = false,
                 RedirectStandardError = true,
                 RedirectStandardOutput = true,

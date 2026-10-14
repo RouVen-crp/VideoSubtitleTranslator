@@ -28,7 +28,7 @@ public sealed class DefaultSplitAudioStep : SplitAudioStepBase
             return;
         }
 
-        using var process = Process.Start("ffmpeg",
+        using var process = Process.Start(GlobalRuntimeConfig.Current.Tools.FfmpegPath,
             $"-i {dirs.VideoPath} -vn -acodec pcm_s16le -ar 44100 {dirs.AudioPath}");
         process?.WaitForExit();
     }

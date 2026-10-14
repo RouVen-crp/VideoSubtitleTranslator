@@ -10,6 +10,7 @@ public sealed class TranslatorRuntimeConfig
     public TranslationConfig Translation { get; set; } = new();
     public WhisperConfig Whisper { get; set; } = new();
     public BurnConfig Burn { get; set; } = new();
+    public ExternalToolsConfig Tools { get; set; } = new();
 
     public static TranslatorRuntimeConfig Load(string path)
     {
@@ -21,8 +22,20 @@ public sealed class TranslatorRuntimeConfig
         {
             PropertyNameCaseInsensitive = true
         });
-        return config ?? new TranslatorRuntimeConfig();
+        config ??= new TranslatorRuntimeConfig();
+        config.Tools ??= new ExternalToolsConfig();
+        config.Tools.FfmpegPath = ExternalToolPaths.FfmpegFromEnvironment(config.Tools.FfmpegPath);
+        config.Tools.FfprobePath = ExternalToolPaths.FfprobeFromEnvironment(config.Tools.FfprobePath);
+        config.Tools.YtDlpPath = ExternalToolPaths.YtDlpFromEnvironment(config.Tools.YtDlpPath);
+        return config;
     }
+}
+
+public sealed class ExternalToolsConfig
+{
+    public string FfmpegPath { get; set; } = "ffmpeg";
+    public string FfprobePath { get; set; } = "ffprobe";
+    public string YtDlpPath { get; set; } = "yt-dlp";
 }
 
 public sealed class LlmConfig

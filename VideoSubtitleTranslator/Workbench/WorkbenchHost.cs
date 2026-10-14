@@ -50,7 +50,14 @@ internal static class WorkbenchEndpoints
         {
             status = "ok",
             bindAddress = options.BindAddress,
-            tools = new { ffprobe = ToolAvailable("ffprobe"), ffmpeg = ToolAvailable("ffmpeg"), python = ToolAvailable("python3") },
+            tools = new
+            {
+                ffprobe = ToolAvailable(options.FfprobePath),
+                ffmpeg = ToolAvailable(options.FfmpegPath),
+                ytDlp = ToolAvailable(options.YtDlpPath),
+                python = ToolAvailable("python3"),
+                probeFallback = !ToolAvailable(options.FfprobePath) && ToolAvailable(options.FfmpegPath)
+            },
             configuration = ConfigurationSummary()
         }));
 
@@ -91,7 +98,7 @@ internal static class WorkbenchEndpoints
             try
             {
                 await using (var stream = File.Create(input)) await file.CopyToAsync(stream, cancellationToken);
-                var probe = await new MediaProbe().ValidateAsync(input, cancellationToken);
+                var probe = await new MediaProbe(options.FfprobePath, options.FfmpegPath).ValidateAsync(input, cancellationToken);
                 if (!probe.IsValid)
                 {
                     TryDeleteDirectory(workspace);
@@ -249,13 +256,18 @@ internal static class WorkbenchEndpoints
 
     private static bool ToolAvailable(string name)
     {
-        try
+        if (ExternalToolPaths.IsExplicitPath(name))
+            return File.Exists(name);
+
+        var path = Environment.GetEnvironmentVariable("PATH") ?? string.Empty;
+        foreach (var directory in path.Split(Path.PathSeparator, StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries))
         {
-            using var process = Process.Start(new ProcessStartInfo { FileName = name, Arguments = "--version", UseShellExecute = false, RedirectStandardOutput = true, RedirectStandardError = true, CreateNoWindow = true });
-            process?.WaitForExit(2000);
-            return process?.ExitCode == 0;
+            if (File.Exists(Path.Combine(directory, name)) ||
+                (OperatingSystem.IsWindows() && File.Exists(Path.Combine(directory, name + ".exe"))))
+                return true;
         }
-        catch { return false; }
+
+        return false;
     }
 
     private static bool IsInside(string root, string path)

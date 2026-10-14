@@ -188,9 +188,14 @@ DEEPSEEK_API_KEY=sk-your-key   # 必填
 COOKIES_FILE=/path/to/cookies   # 可选，绕过 YouTube 反爬
 LLM_BASE_URL=...                # 可选
 LLM_MODEL=...                   # 可选
+VST_FFMPEG_PATH=C:\Tools\ffmpeg.exe   # Windows 可选；覆盖 PATH 中的 ffmpeg
+VST_FFPROBE_PATH=C:\Tools\ffprobe.exe # 可选；缺失时 Web 校验会回退到 ffmpeg
+VST_YTDLP_PATH=C:\Tools\yt-dlp.exe    # Windows 可选；覆盖 PATH 中的 yt-dlp
 ```
 
 程序启动时自动加载项目目录下的 `.env` 文件。
+
+程序不会自动在宿主机安装 `ffmpeg`、`ffprobe` 或 `yt-dlp`。CLI 默认按 PATH 查找它们；Windows 可以通过上面的环境变量提供绝对路径。Docker 镜像会安装 `ffmpeg`，但 Web 首版只接收本地上传视频，不需要 `yt-dlp`；使用 CLI 的 YouTube 下载流程时仍需提供 `yt-dlp`。
 
 ## 输出产物
 
@@ -243,7 +248,7 @@ copy VideoSubtitleTranslator/.env.example .env
 docker compose up --build
 ```
 
-Web 首版只接受可播放的 H.264/AAC MP4，最大 500 MiB、最长 10 分钟。服务绑定到 `127.0.0.1`，可通过 `VST_BIND_ADDRESS`、`VST_WEB_PORT` 和 `VST_DATA_DIR` 调整。Whisper 模型继续使用现有 Python/Whisper 缓存；首次使用某模型会产生下载和本地缓存时间。Web 页面只接收状态和字幕内容，API Key 始终留在服务端。
+Web 首版只接受可播放的 H.264/AAC MP4，最大 500 MiB、最长 10 分钟。服务绑定到 `127.0.0.1`，可通过 `VST_BIND_ADDRESS`、`VST_WEB_PORT` 和 `VST_DATA_DIR` 调整。Whisper 模型继续使用现有 Python/Whisper 缓存；首次使用某模型会产生下载和本地缓存时间。Web 页面只接收状态和字幕内容，API Key 始终留在服务端。媒体校验优先使用 `ffprobe`；只有 `ffmpeg.exe` 时会使用 `ffmpeg -i` 的媒体信息作为回退。
 
 本地页面源码位于 `WebClient/`，使用 Vue 3、TypeScript 和 Vite；Docker 构建时会先生成静态资源，再由 ASP.NET Core 提供给工作台。
 

@@ -14,12 +14,13 @@ public sealed class WorkbenchWorker : BackgroundService
     private readonly ConcurrentDictionary<string, CancellationTokenSource> _running = new();
     private readonly WorkbenchStore _store;
     private readonly PipelineExecutor _pipeline;
-    private readonly MediaExporter _exporter = new();
+    private readonly MediaExporter _exporter;
 
-    public WorkbenchWorker(WorkbenchStore store)
+    public WorkbenchWorker(WorkbenchStore store, WorkbenchOptions options)
     {
         _store = store;
-        _pipeline = new PipelineExecutor(store);
+        _pipeline = new PipelineExecutor(store, options);
+        _exporter = new MediaExporter(options.FfmpegPath);
     }
 
     public ValueTask EnqueueAsync(WorkCommand command, CancellationToken cancellationToken = default) => _commands.Writer.WriteAsync(command, cancellationToken);
