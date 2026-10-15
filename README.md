@@ -60,6 +60,19 @@ Linux / macOS 在 `VideoSubtitleTranslator` 目录执行：
 ```
 
 该脚本会创建 `PythonScripts/venv` 并安装 `openai-whisper`、`srt`。
+脚本同时兼容 Unix 的 `venv/bin` 和 Windows 的 `venv/Scripts`；可通过
+`PYTHON_CMD=/path/to/python ./scripts/init_python_venv.sh` 指定 Python。
+
+在 Windows PowerShell 中也可以直接执行等价命令：
+
+```powershell
+py -3 -m venv PythonScripts/venv
+& .\PythonScripts\venv\Scripts\python.exe -m pip install -r .\PythonScripts\requirements.txt
+$env:VST_PYTHON_PATH = (Resolve-Path .\PythonScripts\venv\Scripts\python.exe)
+```
+
+主机端不会自动安装 `ffmpeg`、`ffprobe`、`yt-dlp` 或 Python；请先安装这些工具并通过
+`VST_FFMPEG_PATH`、`VST_FFPROBE_PATH`、`VST_YTDLP_PATH`、`VST_PYTHON_PATH` 配置路径。
 
 若系统 `python3` 与 Homebrew 存在兼容问题（如 `pyexpat` 符号缺失），可使用 `uv` 替代：
 
@@ -212,9 +225,17 @@ DEEPSEEK_API_KEY=sk-your-key   # 必填
 COOKIES_FILE=/path/to/cookies   # 可选，绕过 YouTube 反爬
 LLM_BASE_URL=...                # 可选
 LLM_MODEL=...                   # 可选
+VST_FFMPEG_PATH=C:\Tools\ffmpeg.exe   # Windows 可选；覆盖 PATH 中的 ffmpeg
+VST_FFPROBE_PATH=C:\Tools\ffprobe.exe # 可选；缺失时 Web 校验会回退到 ffmpeg
+VST_YTDLP_PATH=C:\Tools\yt-dlp.exe    # Windows 可选；覆盖 PATH 中的 yt-dlp
+VST_PYTHON_PATH=C:\path\to\python.exe # Windows 可选；用于 Whisper 字幕提取
+VST_WHISPER_MODEL_PATH=C:\path\to\ggml-large-v3-turbo.bin # 可选；FFmpeg whisper.cpp fallback
+VST_WHISPER_USE_GPU=false             # 可选；FFmpeg whisper.cpp 使用 GPU
 ```
 
 程序启动时自动加载项目目录下的 `.env` 文件。
+
+程序不会自动在宿主机安装 `ffmpeg`、`ffprobe`、`yt-dlp` 或 Whisper/Python 依赖。CLI 默认按 PATH 查找外部工具；Windows 可以通过上面的环境变量提供绝对路径。若 Python/Torch 在 Windows 上无法加载，可使用带 `whisper.cpp` 滤镜的 FFmpeg，并通过 `VST_WHISPER_MODEL_PATH` 指向 `ggml-*.bin` 模型；需要 GPU 时再设置 `VST_WHISPER_USE_GPU=true`。Docker 镜像会安装 `ffmpeg` 和 Python 依赖，但 Web 首版只接收本地上传视频，不需要 `yt-dlp`；使用 CLI 的 YouTube 下载流程时仍需提供 `yt-dlp`。
 
 ## 输出产物
 
@@ -248,6 +269,34 @@ LLM_MODEL=...                   # 可选
 - `cultural_context.txt`：文化背景上下文记忆。
 - `dual_subtitle.ass`：ASS 格式双轨字幕（白字译文 + 灰字注释）。
 - `<中文标题>.mp4`：烧录双轨字幕后的最终视频。
+
+## 本地 Web 工作台
+
+首版 Web 工作台运行在本机回环地址，默认通过 SQLite 保存任务、字幕修订和导出记录，并把每个任务的输入与阶段产物放在独立目录中：
+
+```bash
+dotnet restore VideoSubtitleTranslator/VideoSubtitleTranslator.csproj
+dotnet run --project VideoSubtitleTranslator -- --web
+# 浏览器打开 http://127.0.0.1:5155
+```
+
+也可以使用 Windows Docker Desktop：
+
+```bash
+copy VideoSubtitleTranslator/.env.example .env
+# 在 .env 设置服务端 DEEPSEEK_API_KEY
+docker compose up --build
+```
+
+Web 首版只接受可播放的 H.264/AAC MP4，最大 500 MiB、最长 10 分钟。服务绑定到 `127.0.0.1`，可通过 `VST_BIND_ADDRESS`、`VST_WEB_PORT` 和 `VST_DATA_DIR` 调整。未设置 `VST_DATA_DIR` 时，任务和导出会保存到项目根目录的 `outputs/`，不会默认写入运行时的 C 盘 `bin` 目录。Whisper 模型继续使用现有 Python/Whisper 缓存；首次使用某模型会产生下载和本地缓存时间。Web 页面只接收状态和字幕内容，API Key 始终留在服务端。媒体校验优先使用 `ffprobe`；只有 `ffmpeg.exe` 时会使用 `ffmpeg -i` 的媒体信息作为回退。
+
+本地页面源码位于 `WebClient/`，使用 Vue 3、TypeScript 和 Vite；Docker 构建时会先生成静态资源，再由 ASP.NET Core 提供给工作台。
+
+任务在后台单实例队列中执行。刷新或关闭页面不会停止任务；服务重启会把执行中的任务标为“中断”，由用户确认可能的重复 API 费用后恢复。导出会固定引用某个字幕 revision，后续编辑只会把旧导出标记为过期，不会覆盖历史文件。
+
+### 实时查看本地进度
+
+启动工作台后，打开 `http://127.0.0.1:5155`。任务列表和选中任务会每 1.5 秒自动刷新，显示当前阶段、已处理条目数、累计已用时间；尚未开始的工作还会显示真实的队列位置。页面不会猜测百分比、剩余时间或 ETA。浏览器可以关闭再打开，任务会继续由本机服务执行。
 
 ## 提示词维护
 

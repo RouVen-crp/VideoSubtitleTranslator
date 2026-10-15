@@ -10,6 +10,11 @@
     </PropertyGroup>
 
     <ItemGroup>
+        <FrameworkReference Include="Microsoft.AspNetCore.App" />
+        <PackageReference Include="Microsoft.Data.Sqlite" Version="9.0.9" />
+    </ItemGroup>
+
+    <ItemGroup>
         <Content Include="pipeline.config.json" CopyToOutputDirectory="PreserveNewest" />
         <Content Include="pipeline_meme.config.json" CopyToOutputDirectory="PreserveNewest" />
         <Content Include="Config/translator.config.json" CopyToOutputDirectory="PreserveNewest" />
@@ -19,6 +24,8 @@
         <Content Include="scripts/init_python_venv.sh" CopyToOutputDirectory="PreserveNewest" />
         <Content Include="scripts/setup_windows.ps1" CopyToOutputDirectory="PreserveNewest" />
         <Content Include="Prompts/**/*.md" CopyToOutputDirectory="PreserveNewest" />
+        <Content Include="Web/**/*" CopyToOutputDirectory="PreserveNewest" />
+        <Content Include="pipeline.web.config.json" CopyToOutputDirectory="PreserveNewest" />
     </ItemGroup>
 
     <ItemGroup>
