@@ -30,6 +30,7 @@ public sealed class WorkbenchTask
     public string OperationId { get; set; } = string.Empty;
     public DateTimeOffset CreatedAt { get; set; } = DateTimeOffset.UtcNow;
     public DateTimeOffset UpdatedAt { get; set; } = DateTimeOffset.UtcNow;
+    public int? QueuePosition { get; set; }
 }
 
 public sealed class SubtitleItem
@@ -61,6 +62,8 @@ public sealed class ExportRecord
     public DateTimeOffset CreatedAt { get; set; } = DateTimeOffset.UtcNow;
     public string OperationId { get; set; } = string.Empty;
 }
+
+public sealed record StageCheckpoint(string Stage, string ArtifactPath, string ArtifactSha256, DateTimeOffset CompletedAt);
 
 public enum WorkKind
 {

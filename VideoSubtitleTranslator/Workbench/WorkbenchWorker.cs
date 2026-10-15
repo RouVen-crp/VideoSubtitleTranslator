@@ -10,20 +10,46 @@ public sealed record WorkCommand(string TaskId, WorkKind Kind, int ExpectedRevis
 
 public sealed class WorkbenchWorker : BackgroundService
 {
-    private readonly Channel<WorkCommand> _commands = Channel.CreateUnbounded<WorkCommand>();
+    private readonly Channel<QueuedWorkCommand> _commands = Channel.CreateUnbounded<QueuedWorkCommand>();
     private readonly ConcurrentDictionary<string, CancellationTokenSource> _running = new();
+    private readonly ConcurrentDictionary<string, QueuedCommand> _queued = new();
     private readonly WorkbenchStore _store;
     private readonly PipelineExecutor _pipeline;
     private readonly MediaExporter _exporter;
 
-    public WorkbenchWorker(WorkbenchStore store, WorkbenchOptions options)
+    public WorkbenchWorker(WorkbenchStore store, WorkbenchOptions options, MediaExporter? exporter = null)
     {
         _store = store;
         _pipeline = new PipelineExecutor(store, options);
-        _exporter = new MediaExporter(options.FfmpegPath);
+        _exporter = exporter ?? new MediaExporter(options.FfmpegPath);
     }
 
-    public ValueTask EnqueueAsync(WorkCommand command, CancellationToken cancellationToken = default) => _commands.Writer.WriteAsync(command, cancellationToken);
+    public async ValueTask EnqueueAsync(WorkCommand command, CancellationToken cancellationToken = default)
+    {
+        var queueId = Guid.NewGuid().ToString("N");
+        _queued[queueId] = new QueuedCommand(command.TaskId, Interlocked.Increment(ref _nextQueueSequence));
+        try
+        {
+            await _commands.Writer.WriteAsync(new QueuedWorkCommand(queueId, command), cancellationToken);
+        }
+        catch
+        {
+            _queued.TryRemove(queueId, out _);
+            throw;
+        }
+    }
+
+    public IReadOnlyDictionary<string, int> GetQueuePositions()
+    {
+        var result = new Dictionary<string, int>(StringComparer.Ordinal);
+        var position = 0;
+        foreach (var queued in _queued.OrderBy(pair => pair.Value.Sequence))
+        {
+            position++;
+            result.TryAdd(queued.Value.TaskId, position);
+        }
+        return result;
+    }
 
     public bool Cancel(string taskId)
     {
@@ -33,6 +59,7 @@ public sealed class WorkbenchWorker : BackgroundService
         task.Stage = "Cancelled";
         task.Error = "任务已取消；已发送给提供商的 API 请求仍可能完成并计费。";
         _store.SaveTask(task);
+        foreach (var queued in _queued.Where(pair => pair.Value.TaskId == taskId)) _queued.TryRemove(queued.Key, out _);
         if (_running.TryGetValue(taskId, out var source)) source.Cancel();
         return true;
     }
@@ -46,8 +73,10 @@ public sealed class WorkbenchWorker : BackgroundService
         foreach (var pending in _store.FindPendingOperations(WorkKind.Export))
             await EnqueueAsync(new WorkCommand(pending.TaskId, pending.Kind, pending.ExpectedRevision, pending.SubtitleId, pending.Bilingual, pending.OperationId), stoppingToken);
 
-        await foreach (var command in _commands.Reader.ReadAllAsync(stoppingToken))
+        await foreach (var queued in _commands.Reader.ReadAllAsync(stoppingToken))
         {
+            _queued.TryRemove(queued.QueueId, out _);
+            var command = queued.Command;
             var task = _store.GetTask(command.TaskId);
             if (task is null) continue;
             if (task.Status == WorkbenchTaskStatus.Cancelled)
@@ -67,12 +96,16 @@ public sealed class WorkbenchWorker : BackgroundService
         using var linked = CancellationTokenSource.CreateLinkedTokenSource(stoppingToken);
         _running[task.Id] = linked;
         var started = DateTimeOffset.UtcNow;
+        var elapsedBeforeOperation = task.ElapsedSeconds;
         var succeeded = false;
         try
         {
             switch (command.Kind)
             {
-                case WorkKind.Pipeline: await RunPipelineAsync(task, linked.Token); break;
+                case WorkKind.Pipeline: await RunPipelineAsync(task, linked.Token, () =>
+                {
+                    task.ElapsedSeconds = elapsedBeforeOperation + (DateTimeOffset.UtcNow - started).TotalSeconds;
+                }); break;
                 case WorkKind.Retranslate: await RunRetranslationAsync(task, command, linked.Token); break;
                 case WorkKind.Export: await RunExportAsync(task, command, linked.Token); break;
                 default: throw new InvalidOperationException($"未知工作命令：{command.Kind}");
@@ -98,9 +131,8 @@ public sealed class WorkbenchWorker : BackgroundService
         }
         finally
         {
-            task.ElapsedSeconds += (DateTimeOffset.UtcNow - started).TotalSeconds;
-            if (task.Status is WorkbenchTaskStatus.Failed or WorkbenchTaskStatus.Cancelled)
-                _store.SaveTask(task);
+            task.ElapsedSeconds = elapsedBeforeOperation + (DateTimeOffset.UtcNow - started).TotalSeconds;
+            _store.SaveTask(task);
             if (!string.IsNullOrWhiteSpace(command.OperationId))
             {
                 if (succeeded) _store.MarkOperationCompleted(command.OperationId);
@@ -110,7 +142,7 @@ public sealed class WorkbenchWorker : BackgroundService
         }
     }
 
-    private async Task RunPipelineAsync(WorkbenchTask task, CancellationToken cancellationToken)
+    private async Task RunPipelineAsync(WorkbenchTask task, CancellationToken cancellationToken, Action updateElapsed)
     {
         task.Status = WorkbenchTaskStatus.Processing;
         task.Error = null;
@@ -121,6 +153,7 @@ public sealed class WorkbenchWorker : BackgroundService
             task.Stage = progress.Stage;
             task.ProcessedItems = progress.ProcessedItems;
             task.TotalItems = Math.Max(task.TotalItems, progress.TotalItems);
+            updateElapsed();
             _store.SaveTask(task);
         }, cancellationToken);
         cancellationToken.ThrowIfCancellationRequested();
@@ -181,4 +214,8 @@ public sealed class WorkbenchWorker : BackgroundService
         var end = raw.LastIndexOf('}');
         return start >= 0 && end > start ? raw[start..(end + 1)] : raw;
     }
+
+    private long _nextQueueSequence;
+    private sealed record QueuedCommand(string TaskId, long Sequence);
+    private sealed record QueuedWorkCommand(string QueueId, WorkCommand Command);
 }

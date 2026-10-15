@@ -47,15 +47,24 @@ public sealed class PipelineExecutor
             ["Mode"] = "standard"
         };
 
-        foreach (var step in config.Steps)
+        var stageNames = config.Steps.Select(step => step.Step).ToArray();
+        var recovery = StageRecovery.Plan(stageNames, _store.GetStageCheckpoints(task.Id), step => FindArtifact(dirs, step));
+        if (recovery.InvalidatedStages.Count > 0)
         {
+            DeleteArtifacts(dirs, recovery.InvalidatedStages);
+            _store.RemoveStages(task.Id, recovery.InvalidatedStages);
+        }
+
+        for (var index = recovery.ResumeIndex; index < config.Steps.Count; index++)
+        {
+            var step = config.Steps[index];
             cancellationToken.ThrowIfCancellationRequested();
             progress(new PipelineProgress(step.Step, 0, task.TotalItems));
             context = await Task.Run(() => runner.RunStep(step, context), cancellationToken);
             var artifact = FindArtifact(dirs, step.Step);
             if (artifact is null || !File.Exists(artifact))
                 throw new InvalidDataException($"阶段 {step.Step} 未生成有效产物。");
-            _store.AddStage(task.Id, step.Step, artifact, ComputeSha256(artifact));
+            _store.AddStage(task.Id, step.Step, artifact, StageRecovery.ComputeSha256(artifact));
             progress(new PipelineProgress(step.Step, step.Step == "BuildSentences" ? CountLines(dirs.RawSubtitlePath) : 0, task.TotalItems));
         }
 
@@ -108,11 +117,14 @@ public sealed class PipelineExecutor
         _ => null
     };
 
-    private static int CountLines(string path) => File.Exists(path) ? File.ReadLines(path).Count(line => !string.IsNullOrWhiteSpace(line)) : 0;
-
-    private static string ComputeSha256(string path)
+    private static void DeleteArtifacts(WorkDirs dirs, IEnumerable<string> stages)
     {
-        using var stream = File.OpenRead(path);
-        return Convert.ToHexString(SHA256.HashData(stream));
+        foreach (var stage in stages)
+        {
+            var artifact = FindArtifact(dirs, stage);
+            if (artifact is not null && File.Exists(artifact)) File.Delete(artifact);
+        }
     }
+
+    private static int CountLines(string path) => File.Exists(path) ? File.ReadLines(path).Count(line => !string.IsNullOrWhiteSpace(line)) : 0;
 }

@@ -3,13 +3,13 @@ using System.Text;
 
 namespace VideoSubtitleTranslator.Workbench;
 
-public sealed class MediaExporter
+public class MediaExporter
 {
     private readonly string _ffmpegPath;
 
     public MediaExporter(string ffmpegPath = "ffmpeg") => _ffmpegPath = ffmpegPath;
 
-    public async Task<ExportRecord> ExportAsync(WorkbenchTask task, SubtitleDocument document, bool bilingual, CancellationToken cancellationToken)
+    public virtual async Task<ExportRecord> ExportAsync(WorkbenchTask task, SubtitleDocument document, bool bilingual, CancellationToken cancellationToken)
     {
         var exportId = Guid.NewGuid().ToString("N");
         var exportDirectory = Path.Combine(task.WorkspacePath, "exports", exportId);

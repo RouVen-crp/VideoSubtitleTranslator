@@ -485,6 +485,46 @@ public sealed class WorkbenchStore : IDisposable
         }
     }
 
+    public IReadOnlyDictionary<string, StageCheckpoint> GetStageCheckpoints(string taskId)
+    {
+        lock (_gate)
+        {
+            using var connection = Open();
+            using var command = connection.CreateCommand();
+            command.CommandText = "SELECT stage,artifact_path,artifact_sha256,completed_at FROM stage_records WHERE task_id=$task";
+            command.Parameters.AddWithValue("$task", taskId);
+            using var reader = command.ExecuteReader();
+            var checkpoints = new Dictionary<string, StageCheckpoint>(StringComparer.OrdinalIgnoreCase);
+            while (reader.Read())
+            {
+                var checkpoint = new StageCheckpoint(reader.GetString(0), reader.GetString(1), reader.GetString(2), DateTimeOffset.Parse(reader.GetString(3)));
+                checkpoints[checkpoint.Stage] = checkpoint;
+            }
+            return checkpoints;
+        }
+    }
+
+    public void RemoveStages(string taskId, IEnumerable<string> stages)
+    {
+        var names = stages.Distinct(StringComparer.OrdinalIgnoreCase).ToArray();
+        if (names.Length == 0) return;
+        lock (_gate)
+        {
+            using var connection = Open();
+            using var transaction = connection.BeginTransaction();
+            foreach (var stage in names)
+            {
+                using var command = connection.CreateCommand();
+                command.Transaction = transaction;
+                command.CommandText = "DELETE FROM stage_records WHERE task_id=$task AND stage=$stage";
+                command.Parameters.AddWithValue("$task", taskId);
+                command.Parameters.AddWithValue("$stage", stage);
+                command.ExecuteNonQuery();
+            }
+            transaction.Commit();
+        }
+    }
+
     public void AddExport(ExportRecord export)
     {
         lock (_gate)

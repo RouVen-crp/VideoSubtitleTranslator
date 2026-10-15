@@ -61,10 +61,16 @@ internal static class WorkbenchEndpoints
             configuration = ConfigurationSummary()
         }));
 
-        app.MapGet("/api/tasks", () => Results.Ok(store.ListTasks()));
+        app.MapGet("/api/tasks", () =>
+        {
+            var tasks = store.ListTasks();
+            ApplyQueuePositions(tasks, worker.GetQueuePositions());
+            return Results.Ok(tasks);
+        });
         app.MapGet("/api/tasks/{taskId}", (string taskId) =>
         {
             var task = store.GetTask(taskId);
+            if (task is not null) ApplyQueuePositions([task], worker.GetQueuePositions());
             return task is null ? Results.NotFound(new ApiError("task_not_found", "任务不存在。")) : Results.Ok(task);
         });
 
@@ -252,6 +258,11 @@ internal static class WorkbenchEndpoints
         var path = Path.Combine(AppContext.BaseDirectory, "Config", "translator.config.json");
         var config = File.Exists(path) ? TranslatorRuntimeConfig.Load(path) : new TranslatorRuntimeConfig();
         return new { llmModel = config.Llm.Model, whisperModel = config.Whisper.Model, apiKeyConfigured = !string.IsNullOrWhiteSpace(Environment.GetEnvironmentVariable(config.Llm.ApiKeyEnv)) };
+    }
+
+    private static void ApplyQueuePositions(IEnumerable<WorkbenchTask> tasks, IReadOnlyDictionary<string, int> positions)
+    {
+        foreach (var task in tasks) task.QueuePosition = positions.GetValueOrDefault(task.Id);
     }
 
     private static string ResolvePythonPath()

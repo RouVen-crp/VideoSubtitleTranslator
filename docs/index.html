@@ -3,30 +3,34 @@
 <head>
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
-  <title>VideoSubtitleTranslator — local Web workbench</title>
+  <meta name="description" content="A static product demo for VideoSubtitleTranslator.">
+  <title>VideoSubtitleTranslator — subtitle review demo</title>
   <link rel="stylesheet" href="styles.css">
 </head>
 <body>
   <main class="shell">
-    <header>
+    <header class="hero">
       <p class="eyebrow">VideoSubtitleTranslator</p>
-      <h1>Review subtitles before you export.</h1>
-      <p class="lede">A local-first workbench for translating short English MP4 videos while keeping the source timeline and revision history visible.</p>
-      <p class="notice">Interactive demo — no AI processing is performed.</p>
+      <h1>Review the words. Then export with confidence.</h1>
+      <p class="lede">A local-first workbench for translating short English videos, reviewing every subtitle against the source timeline, and exporting a revision you can trace.</p>
+      <p class="notice">Interactive product demo — edits stay in this browser. No video is uploaded and no AI service is called.</p>
     </header>
     <section class="workspace" aria-label="Subtitle editor demo">
       <div class="video-card">
-        <div class="video-placeholder"><span>▶</span><small>Sample playback surface</small></div>
-        <div class="transport"><button id="playButton">Play sample</button><input id="seek" type="range" min="0" max="10000" value="0"><output id="clock">00:00</output></div>
+        <div class="player-wrap"><video id="video" preload="metadata" playsinline aria-describedby="sampleStatus"><source src="assets/sample.mp4" type="video/mp4">Your browser does not support HTML video.</video><div id="subtitleOverlay" class="subtitle-overlay" aria-live="polite"></div></div>
+        <div class="transport"><button id="playButton" type="button">Play</button><input id="seek" type="range" min="0" max="1" value="0" step="0.01" aria-label="Seek sample video"><output id="clock">00:00 / 00:00</output></div>
+        <p id="sampleStatus" class="sample-status" role="status">Loading the fixed sample and its supplied subtitle files…</p>
       </div>
       <div class="editor-card">
-        <div class="card-heading"><span>English → 中文</span><span id="revision">Revision 3</span></div>
+        <div class="card-heading"><div><p class="eyebrow">Fixed sample</p><h2>Subtitle review</h2></div><span id="revision" class="revision">Revision 1</span></div>
+        <div class="preview-controls" role="group" aria-label="Subtitle preview language"><span>Preview</span><button type="button" class="toggle active" data-preview="zh" aria-pressed="true">中文</button><button type="button" class="toggle" data-preview="bilingual" aria-pressed="false">English + 中文</button></div>
         <div id="rows"></div>
-        <div class="actions"><button id="saveButton">Save revision</button><button id="downloadButton" class="secondary">Download SRT</button></div>
+        <div class="actions"><button id="saveButton" type="button">Save browser revision</button><button id="downloadButton" type="button" class="secondary">Download edited SRT</button></div>
         <p id="status" class="status" role="status"></p>
       </div>
     </section>
-    <footer>Run the real workbench locally with Docker; your API key and media stay on your machine.</footer>
+    <section class="how-it-works" aria-label="Demo notes"><article><span>01</span><h2>Play or seek</h2><p>Click a subtitle row to jump the fixed sample to its matching timestamp.</p></article><article><span>02</span><h2>Edit safely</h2><p>Change the Chinese copy and save a browser-only revision. The source media never changes.</p></article><article><span>03</span><h2>Take the SRT</h2><p>Download the Chinese SRT created from your edits. This demo never renders a new video.</p></article></section>
+    <footer>The production workbench runs locally: API keys, source media, task history, and exports stay on your machine.</footer>
   </main>
   <script src="demo.js"></script>
 </body>

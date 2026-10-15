@@ -44,6 +44,7 @@ Thumbs.db
 **/*.tmp
 **/*.temp
 /.scratch-web/
+/outputs/
 
 # agents and dev docs
 

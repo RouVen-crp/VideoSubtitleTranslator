@@ -1,7 +1,7 @@
 FROM node:22-alpine AS frontend
 WORKDIR /src
 COPY WebClient/package*.json ./WebClient/
-RUN npm install
+RUN npm ci
 COPY WebClient ./WebClient
 COPY VideoSubtitleTranslator ./VideoSubtitleTranslator
 WORKDIR /src/WebClient
