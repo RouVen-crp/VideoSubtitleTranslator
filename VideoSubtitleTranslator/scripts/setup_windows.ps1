@@ -17,7 +17,7 @@ function Invoke-CheckedCommand {
     param(
         [Parameter(Mandatory = $true)]
         [string]$Command,
-        [Parameter(ValueFromRemainingArguments = $true)]
+        [Parameter(Mandatory = $true)]
         [string[]]$Arguments
     )
 
@@ -49,7 +49,7 @@ function Install-WingetPackageIfMissing {
     }
 
     Write-Host "[install] Installing $CommandName with winget..."
-    Invoke-CheckedCommand "winget" @(
+    Invoke-CheckedCommand -Command "winget" -Arguments @(
         "install",
         "--id", $PackageId,
         "--exact",
@@ -68,19 +68,19 @@ if (-not (Get-Command $PythonCommand -ErrorAction SilentlyContinue)) {
 }
 
 Write-Host "[python] Checking $PythonCommand..."
-Invoke-CheckedCommand $PythonCommand @("--version")
+Invoke-CheckedCommand -Command $PythonCommand -Arguments @("--version")
 
 if (-not (Test-Path -LiteralPath $venvPython -PathType Leaf)) {
     Write-Host "[python] Creating virtual environment at $venvDir..."
-    Invoke-CheckedCommand $PythonCommand @("-m", "venv", $venvDir)
+    Invoke-CheckedCommand -Command $PythonCommand -Arguments @("-m", "venv", $venvDir)
 }
 else {
     Write-Host "[ok] Python virtual environment already exists."
 }
 
 Write-Host "[python] Installing Whisper dependencies..."
-Invoke-CheckedCommand $venvPython @("-m", "pip", "install", "--upgrade", "pip")
-Invoke-CheckedCommand $venvPython @("-m", "pip", "install", "-r", $requirementsFile)
+Invoke-CheckedCommand -Command $venvPython -Arguments @("-m", "pip", "install", "--upgrade", "pip")
+Invoke-CheckedCommand -Command $venvPython -Arguments @("-m", "pip", "install", "-r", $requirementsFile)
 
 Write-Host ""
 Write-Host "Setup completed."
