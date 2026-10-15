@@ -10,6 +10,7 @@ public sealed class TranslatorRuntimeConfig
     public TranslationConfig Translation { get; set; } = new();
     public WhisperConfig Whisper { get; set; } = new();
     public BurnConfig Burn { get; set; } = new();
+    public ExternalToolsConfig Tools { get; set; } = new();
 
     public static TranslatorRuntimeConfig Load(string path)
     {
@@ -21,8 +22,28 @@ public sealed class TranslatorRuntimeConfig
         {
             PropertyNameCaseInsensitive = true
         });
-        return config ?? new TranslatorRuntimeConfig();
+        config ??= new TranslatorRuntimeConfig();
+        config.Tools ??= new ExternalToolsConfig();
+        config.Tools.FfmpegPath = ExternalToolPaths.FfmpegFromEnvironment(config.Tools.FfmpegPath);
+        config.Tools.FfprobePath = ExternalToolPaths.FfprobeFromEnvironment(config.Tools.FfprobePath);
+        config.Tools.YtDlpPath = ExternalToolPaths.YtDlpFromEnvironment(config.Tools.YtDlpPath);
+        var pythonPath = Environment.GetEnvironmentVariable("VST_PYTHON_PATH");
+        if (!string.IsNullOrWhiteSpace(pythonPath))
+            config.Whisper.PythonExecutable = pythonPath.Trim().Trim('"');
+        var whisperModelPath = Environment.GetEnvironmentVariable("VST_WHISPER_MODEL_PATH");
+        if (!string.IsNullOrWhiteSpace(whisperModelPath))
+            config.Whisper.ModelPath = whisperModelPath.Trim().Trim('"');
+        if (bool.TryParse(Environment.GetEnvironmentVariable("VST_WHISPER_USE_GPU"), out var useGpu))
+            config.Whisper.UseGpu = useGpu;
+        return config;
     }
+}
+
+public sealed class ExternalToolsConfig
+{
+    public string FfmpegPath { get; set; } = "ffmpeg";
+    public string FfprobePath { get; set; } = "ffprobe";
+    public string YtDlpPath { get; set; } = "yt-dlp";
 }
 
 public sealed class LlmConfig
@@ -73,8 +94,10 @@ public sealed class WhisperConfig
 {
     public string PythonExecutable { get; set; } = "python3";
     public string Model { get; set; } = "medium";
+    public string ModelPath { get; set; } = string.Empty;
     public string Language { get; set; } = "en";
     public bool Force { get; set; }
+    public bool UseGpu { get; set; }
 }
 
 public sealed class BurnConfig

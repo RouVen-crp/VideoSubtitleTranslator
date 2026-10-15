@@ -30,7 +30,7 @@ public sealed class DefaultBurnSubtitleStep : BurnSubtitleStepBase
         {
             var psi = new ProcessStartInfo
             {
-                FileName = "ffprobe",
+                FileName = GlobalRuntimeConfig.Current.Tools.FfprobePath,
                 Arguments = $"-v error {showEntriesArgs} -of default=noprint_wrappers=1:nokey=1 \"{videoPath}\"",
                 RedirectStandardOutput = true,
                 RedirectStandardError = true,
@@ -173,7 +173,7 @@ public sealed class DefaultBurnSubtitleStep : BurnSubtitleStepBase
 
         try
         {
-            using var process = Process.Start("ffmpeg", ffmpegArgs)
+            using var process = Process.Start(GlobalRuntimeConfig.Current.Tools.FfmpegPath, ffmpegArgs)
                 ?? throw new InvalidOperationException("Unable to start ffmpeg.");
             process.WaitForExit();
             EnsureFfmpegSucceeded(process.ExitCode);

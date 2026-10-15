@@ -1,0 +1,15 @@
+services:
+  workbench:
+    build: .
+    ports:
+      - "127.0.0.1:5155:5155"
+    environment:
+      VST_BIND_ADDRESS: 0.0.0.0
+      VST_DATA_DIR: /data/workbench
+      DEEPSEEK_API_KEY: ${DEEPSEEK_API_KEY:?Set DEEPSEEK_API_KEY in .env}
+    volumes:
+      - workbench-data:/data/workbench
+      - whisper-cache:/root/.cache/whisper
+volumes:
+  workbench-data:
+  whisper-cache:

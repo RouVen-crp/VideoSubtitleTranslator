@@ -1,0 +1,10 @@
+{
+  "steps": [
+    { "step": "SplitAudio", "implementation": "Default" },
+    { "step": "ExtractSubtitle", "implementation": "Default" },
+    { "step": "BuildSentences", "implementation": "Default" },
+    { "step": "NormalizeSubtitle", "implementation": "DeepSeek" },
+    { "step": "Translate", "implementation": "DeepSeek" },
+    { "step": "ProofreadSubtitle", "implementation": "DeepSeek" }
+  ]
+}
