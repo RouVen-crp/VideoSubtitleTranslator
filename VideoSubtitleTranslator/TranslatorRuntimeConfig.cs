@@ -80,7 +80,8 @@ public sealed class WhisperConfig
 public sealed class BurnConfig
 {
     public bool Enabled { get; set; } = false;
-    public string VideoEncoder { get; set; } = "h264_nvenc";
+    /// <summary>ffmpeg 视频编码器，"auto" 时自动按平台选择。</summary>
+    public string VideoEncoder { get; set; } = "libx264";
     /// <summary>烧录质量档位：auto=ffmpeg默认参数，high=尽可能高清。</summary>
     public string QualityPreset { get; set; } = "auto";
     /// <summary>是否保证烧录输出视频码率不低于原视频码率。</summary>

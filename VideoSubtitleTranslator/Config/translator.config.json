@@ -34,7 +34,7 @@
   },
   "burn": {
     "enabled": true,
-    "videoEncoder": "h264_nvenc",
+    "videoEncoder": "auto",
     "qualityPreset": "high",
     "enforceSourceBitrateFloor": true,
     "minOutputBitrateKbps": 0
