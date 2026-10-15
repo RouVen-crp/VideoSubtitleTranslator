@@ -1,37 +1,153 @@
 <!doctype html>
-<html lang="en">
+<html lang="zh-CN">
 <head>
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
-  <meta name="description" content="A static product demo for VideoSubtitleTranslator.">
-  <title>VideoSubtitleTranslator — subtitle review demo</title>
+  <meta name="theme-color" content="#ffffff">
+  <meta name="description" content="体验 VideoSubtitleTranslator 字幕校对演示：对照样例视频编辑中文字幕并下载 SRT。无需上传视频，也不会请求 AI 服务。">
+  <title>VideoSubtitleTranslator — 字幕校对演示</title>
   <link rel="stylesheet" href="styles.css">
 </head>
 <body>
-  <main class="shell">
-    <header class="hero">
-      <p class="eyebrow">VideoSubtitleTranslator</p>
-      <h1>Review the words. Then export with confidence.</h1>
-      <p class="lede">A local-first workbench for translating short English videos, reviewing every subtitle against the source timeline, and exporting a revision you can trace.</p>
-      <p class="notice">Interactive product demo — edits stay in this browser. No video is uploaded and no AI service is called.</p>
-    </header>
-    <section class="workspace" aria-label="Subtitle editor demo">
-      <div class="video-card">
-        <div class="player-wrap"><video id="video" preload="metadata" playsinline aria-describedby="sampleStatus"><source src="assets/sample.mp4" type="video/mp4">Your browser does not support HTML video.</video><div id="subtitleOverlay" class="subtitle-overlay" aria-live="polite"></div></div>
-        <div class="transport"><button id="playButton" type="button">Play</button><input id="seek" type="range" min="0" max="1" value="0" step="0.01" aria-label="Seek sample video"><output id="clock">00:00 / 00:00</output></div>
-        <p id="sampleStatus" class="sample-status" role="status">Loading the fixed sample and its supplied subtitle files…</p>
+  <header class="top-nav">
+    <a class="wordmark" href="#top" aria-label="VideoSubtitleTranslator 首页">
+      <span class="wordmark-mark" aria-hidden="true">V</span>
+      <span>VideoSubtitleTranslator</span>
+    </a>
+    <button id="menuButton" class="menu-button" type="button" aria-label="打开导航菜单" aria-expanded="false" aria-controls="navLinks">
+      <span></span><span></span><span></span>
+    </button>
+    <nav id="navLinks" class="nav-links" aria-label="主导航">
+      <a href="#demo">在线演示</a>
+      <a href="#how-it-works">使用方法</a>
+      <a href="https://github.com/RouVen-crp/VideoSubtitleTranslator">GitHub</a>
+      <a class="nav-cta" href="https://github.com/RouVen-crp/VideoSubtitleTranslator#本地-web-工作台图形界面">在本机运行 <span aria-hidden="true">↗</span></a>
+    </nav>
+  </header>
+
+  <main id="top">
+    <section class="hero" aria-labelledby="hero-title">
+      <span class="hero-tag"><span aria-hidden="true">✳</span> 字幕校对演示</span>
+      <h1 id="hero-title">看懂每一句，<br><span>译好每一帧。</span></h1>
+      <p class="lede">对照视频原声逐句调整译文，预览中文字幕与中英双语效果，再下载自己的 SRT。</p>
+      <div class="hero-actions">
+        <a class="button-primary" href="#demo">体验字幕编辑 <span aria-hidden="true">↓</span></a>
+        <a class="button-secondary" href="https://github.com/RouVen-crp/VideoSubtitleTranslator#本地-web-工作台图形界面">了解本地工作台 <span aria-hidden="true">↗</span></a>
       </div>
-      <div class="editor-card">
-        <div class="card-heading"><div><p class="eyebrow">Fixed sample</p><h2>Subtitle review</h2></div><span id="revision" class="revision">Revision 1</span></div>
-        <div class="preview-controls" role="group" aria-label="Subtitle preview language"><span>Preview</span><button type="button" class="toggle active" data-preview="zh" aria-pressed="true">中文</button><button type="button" class="toggle" data-preview="bilingual" aria-pressed="false">English + 中文</button></div>
-        <div id="rows"></div>
-        <div class="actions"><button id="saveButton" type="button">Save browser revision</button><button id="downloadButton" type="button" class="secondary">Download edited SRT</button></div>
-        <p id="status" class="status" role="status"></p>
+      <p class="privacy-note"><span class="privacy-dot" aria-hidden="true"></span> 固定样例 · 编辑留在当前浏览器 · 不请求 AI 服务</p>
+    </section>
+
+    <section id="demo" class="demo-section" aria-labelledby="demo-title">
+      <div class="section-heading">
+        <div>
+          <p class="eyebrow">逐句对照视频</p>
+          <h2 id="demo-title">边听边看，放心修改。</h2>
+        </div>
+        <span class="sample-badge">38 秒 <span aria-hidden="true">·</span> 25 条字幕 <span aria-hidden="true">·</span> 英中对照</span>
+      </div>
+
+      <div class="product-frame">
+        <div class="frame-bar" aria-hidden="true">
+          <span class="frame-lights"><i></i><i></i><i></i></span>
+          <span class="frame-title">字幕校对 / sample.mp4</span>
+          <span class="frame-revision">样例 01</span>
+        </div>
+        <div class="workspace" aria-label="字幕编辑演示">
+          <section class="video-card" aria-label="样例视频播放器">
+            <div class="video-heading">
+              <span class="pane-label"><span class="live-dot" aria-hidden="true"></span> 样例视频</span>
+              <span class="pane-meta" id="previewMode">中文字幕</span>
+            </div>
+            <div class="player-wrap">
+              <video id="video" preload="metadata" playsinline aria-describedby="sampleStatus">
+                <source src="assets/sample.mp4" type="video/mp4">
+                当前浏览器不支持播放此视频。
+              </video>
+              <div id="subtitleOverlay" class="subtitle-overlay" aria-live="polite"></div>
+            </div>
+            <div class="transport">
+              <button id="playButton" class="play-button" type="button" aria-label="播放样例视频">播放</button>
+              <input id="seek" type="range" min="0" max="1" value="0" step="0.01" aria-label="调整视频进度">
+              <output id="clock">00:00 / 00:00</output>
+            </div>
+            <div class="preview-controls" role="group" aria-label="视频字幕预览版本">
+              <span class="control-label">视频字幕</span>
+              <button type="button" class="toggle active" data-preview="zh" aria-pressed="true">中文</button>
+              <button type="button" class="toggle" data-preview="bilingual" aria-pressed="false">中英双语</button>
+            </div>
+            <p id="sampleStatus" class="sample-status" role="status">正在加载完整样例字幕…</p>
+          </section>
+
+          <section class="editor-card" aria-labelledby="editor-title">
+            <div class="editor-heading">
+              <div>
+                <p class="pane-label">逐句校对</p>
+                <h3 id="editor-title">把译文改成你喜欢的表达。</h3>
+              </div>
+              <span id="revision" class="revision">修订 1</span>
+            </div>
+            <div id="rows" class="rows"></div>
+            <div class="actions">
+              <button id="saveButton" class="button-primary" type="button">保存本次修订</button>
+              <button id="downloadButton" class="button-secondary" type="button">下载 SRT</button>
+            </div>
+            <p id="status" class="status" role="status" aria-live="polite"></p>
+          </section>
+        </div>
       </div>
     </section>
-    <section class="how-it-works" aria-label="Demo notes"><article><span>01</span><h2>Play or seek</h2><p>Click a subtitle row to jump the fixed sample to its matching timestamp.</p></article><article><span>02</span><h2>Edit safely</h2><p>Change the Chinese copy and save a browser-only revision. The source media never changes.</p></article><article><span>03</span><h2>Take the SRT</h2><p>Download the Chinese SRT created from your edits. This demo never renders a new video.</p></article></section>
-    <footer>The production workbench runs locally: API keys, source media, task history, and exports stay on your machine.</footer>
+
+    <section id="how-it-works" class="how-it-works" aria-labelledby="steps-title">
+      <div class="section-heading steps-heading">
+        <div>
+          <p class="eyebrow">简单三步</p>
+          <h2 id="steps-title">看视频，改字幕，带走结果。</h2>
+        </div>
+        <p class="steps-intro">每条字幕都能跳到对应画面。编辑后可立即在视频中预览。</p>
+      </div>
+      <div class="steps-grid">
+        <article class="step-card step-yellow">
+          <span class="step-number">01 / 对照</span>
+          <h3>先听原声。</h3>
+          <p>播放样例，或点击时间戳跳到对应画面。</p>
+          <span class="step-decoration" aria-hidden="true">♫</span>
+        </article>
+        <article class="step-card step-teal">
+          <span class="step-number">02 / 修改</span>
+          <h3>再斟酌译文。</h3>
+          <p>修改中文字幕，随时切换中文与中英双语预览。</p>
+          <span class="step-decoration" aria-hidden="true">文</span>
+        </article>
+        <article class="step-card step-coral">
+          <span class="step-number">03 / 下载</span>
+          <h3>留下你的版本。</h3>
+          <p>保存当前浏览器中的修订，或下载完整 SRT 文件。</p>
+          <span class="step-decoration" aria-hidden="true">.srt</span>
+        </article>
+      </div>
+    </section>
+
+    <aside class="local-callout">
+      <div>
+        <p class="eyebrow">想处理自己的视频？</p>
+        <h2>在本机运行完整工作台。</h2>
+        <p>上传视频，完成翻译与逐句校对，再导出字幕和成片。</p>
+      </div>
+      <a class="button-on-dark" href="https://github.com/RouVen-crp/VideoSubtitleTranslator#本地-web-工作台图形界面">查看本地运行指南 <span aria-hidden="true">↗</span></a>
+    </aside>
   </main>
+
+  <footer class="site-footer">
+    <div class="footer-main">
+      <a class="wordmark footer-wordmark" href="#top"><span class="wordmark-mark" aria-hidden="true">V</span><span>VideoSubtitleTranslator</span></a>
+      <p>在浏览器校对样例，在自己的电脑上翻译视频。</p>
+    </div>
+    <div class="footer-bottom">
+      <span>静态演示 · 固定样例 · 不上传视频</span>
+      <a href="https://github.com/RouVen-crp/VideoSubtitleTranslator">查看 GitHub 开源项目 <span aria-hidden="true">↗</span></a>
+    </div>
+  </footer>
+  <script src="assets/sample-data.js"></script>
   <script src="demo.js"></script>
 </body>
 </html>

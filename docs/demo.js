@@ -1,8 +1,3 @@
-const fallbackSubtitles = [
-  { start: 0, end: 4200, source: 'Review every line before you export.', translated: '导出前，逐句检查字幕。' },
-  { start: 4200, end: 8200, source: 'The demo never calls an AI service.', translated: '这个演示不会调用任何 AI 服务。' }
-];
-
 const video = document.querySelector('#video');
 const rows = document.querySelector('#rows');
 const overlay = document.querySelector('#subtitleOverlay');
@@ -12,24 +7,15 @@ const playButton = document.querySelector('#playButton');
 const status = document.querySelector('#status');
 const sampleStatus = document.querySelector('#sampleStatus');
 const revision = document.querySelector('#revision');
-let subtitles = [];
+const previewMode = document.querySelector('#previewMode');
+const menuButton = document.querySelector('#menuButton');
+const navLinks = document.querySelector('#navLinks');
+const subtitles = Array.isArray(globalThis.VST_SAMPLE_SUBTITLES)
+  ? globalThis.VST_SAMPLE_SUBTITLES.map((cue) => ({ ...cue }))
+  : [];
 let preview = 'zh';
 let revisionNumber = 1;
-let assetsReady = false;
-
-function parseTimestamp(value) {
-  const [hours, minutes, seconds] = value.trim().replace(',', '.').split(':');
-  return (Number(hours) * 3600 + Number(minutes) * 60 + Number(seconds)) * 1000;
-}
-
-function parseSrt(source) {
-  return source.trim().split(/\r?\n\r?\n/).map((block) => {
-    const lines = block.split(/\r?\n/).filter(Boolean);
-    const times = lines[1]?.split(/\s+-->\s+/);
-    if (!times || lines.length < 3) throw new Error('The supplied SRT is malformed.');
-    return { start: parseTimestamp(times[0]), end: parseTimestamp(times[1]), text: lines.slice(2).join('\n') };
-  });
-}
+const assetsReady = subtitles.length > 0;
 
 function formatTime(milliseconds) {
   const total = Math.max(0, Math.floor(milliseconds / 1000));
@@ -50,7 +36,7 @@ function srtTime(milliseconds) {
 
 function currentSubtitle() {
   const now = video.currentTime * 1000;
-  return subtitles.find((item) => now >= item.start && now <= item.end);
+  return subtitles.find((item) => now >= item.start && now < item.end);
 }
 
 function updateOverlay() {
@@ -69,11 +55,16 @@ function renderRows() {
   rows.replaceChildren();
   subtitles.forEach((item, index) => {
     const row = document.createElement('article'); row.className = 'subtitle-row';
-    const seekButton = document.createElement('button'); seekButton.type = 'button'; seekButton.className = 'timestamp'; seekButton.textContent = `${formatTime(item.start)}–${formatTime(item.end)}`;
-    seekButton.addEventListener('click', () => { video.currentTime = item.start / 1000; playFixedSample(); });
+    const seekButton = document.createElement('button'); seekButton.type = 'button'; seekButton.className = 'timestamp'; seekButton.textContent = `${formatTime(item.start)}–${formatTime(item.end)}`; seekButton.setAttribute('aria-label', `跳转到第 ${index + 1} 条字幕，${formatTime(item.start)}`);
+    seekButton.addEventListener('click', () => {
+      video.currentTime = item.start / 1000;
+      if (window.innerWidth <= 1023) video.scrollIntoView({ block: 'center' });
+      updateTransport();
+      playFixedSample();
+    });
     const copy = document.createElement('div'); copy.className = 'subtitle-copy';
     const source = document.createElement('p'); source.className = 'source'; source.textContent = item.source;
-    const label = document.createElement('label'); label.textContent = 'Chinese translation';
+    const label = document.createElement('label'); label.textContent = `第 ${index + 1} 条 · 中文译文`;
     const textarea = document.createElement('textarea'); textarea.value = item.translated; textarea.rows = 2;
     textarea.addEventListener('input', () => { subtitles[index].translated = textarea.value; updateOverlay(); });
     label.append(textarea); copy.append(source, label); row.append(seekButton, copy); rows.append(row);
@@ -85,7 +76,8 @@ function updateTransport() {
   seek.max = String(Math.max(duration, 1));
   seek.value = String(Math.min(video.currentTime, duration || 0));
   clock.value = `${formatTime(video.currentTime * 1000)} / ${formatTime(duration * 1000)}`;
-  playButton.textContent = video.paused ? 'Play' : 'Pause';
+  playButton.textContent = video.paused ? '播放' : '暂停';
+  playButton.setAttribute('aria-label', video.paused ? '播放样例视频' : '暂停样例视频');
   updateOverlay();
 }
 
@@ -93,29 +85,24 @@ function makeSrt() {
   return subtitles.map((item, index) => `${index + 1}\n${srtTime(item.start)} --> ${srtTime(item.end)}\n${item.translated}`).join('\n\n') + '\n';
 }
 
-async function loadSample() {
-  try {
-    const [englishResponse, chineseResponse] = await Promise.all(['assets/sample.en.srt', 'assets/sample.zh.srt'].map((asset) => fetch(asset)));
-    if (!englishResponse.ok || !chineseResponse.ok) throw new Error('Missing sample assets');
-    const english = parseSrt(await englishResponse.text());
-    const chinese = parseSrt(await chineseResponse.text());
-    if (!english.length || english.length !== chinese.length || english.some((line, index) => line.start !== chinese[index].start || line.end !== chinese[index].end)) throw new Error('Unaligned sample subtitles');
-    subtitles = english.map((line, index) => ({ ...line, source: line.text, translated: chinese[index].text }));
-    assetsReady = true;
-    sampleStatus.textContent = 'Fixed project sample. Playback and seeking are active.';
-  } catch {
-    subtitles = fallbackSubtitles.map((item) => ({ ...item }));
-    sampleStatus.textContent = 'Sample video and SRT files are not included yet. The editor is shown with placeholder copy only.';
+function loadSample() {
+  if (!assetsReady) {
+    sampleStatus.textContent = '完整样例字幕加载失败，请刷新页面后重试。';
+    document.querySelector('#saveButton').disabled = true;
+    document.querySelector('#downloadButton').disabled = true;
+    return;
   }
-  renderRows(); updateOverlay();
+  sampleStatus.textContent = `已加载全部 ${subtitles.length} 条字幕。点击时间戳可跳转到对应画面。`;
+  renderRows();
+  updateOverlay();
 }
 
 function playFixedSample() {
   if (video.readyState === HTMLMediaElement.HAVE_NOTHING) {
-    sampleStatus.textContent = 'Add the fixed sample video before using playback.';
+    sampleStatus.textContent = '样例视频尚未就绪，请稍后再试。';
     return;
   }
-  video.play().catch(() => { sampleStatus.textContent = 'The supplied sample video could not be played in this browser.'; });
+  video.play().catch(() => { sampleStatus.textContent = '当前浏览器无法播放样例视频。'; });
 }
 
 playButton.addEventListener('click', () => { if (video.paused) playFixedSample(); else video.pause(); });
@@ -124,27 +111,48 @@ video.addEventListener('timeupdate', updateTransport);
 video.addEventListener('loadedmetadata', updateTransport);
 video.addEventListener('play', updateTransport);
 video.addEventListener('pause', updateTransport);
-video.addEventListener('error', () => { if (assetsReady) sampleStatus.textContent = 'The supplied sample video could not be played in this browser.'; });
+video.addEventListener('error', () => { if (assetsReady) sampleStatus.textContent = '当前浏览器无法播放样例视频。'; });
 
 document.querySelectorAll('[data-preview]').forEach((button) => button.addEventListener('click', () => {
   preview = button.dataset.preview;
+  previewMode.textContent = preview === 'bilingual' ? '中英双语字幕' : '中文字幕';
   document.querySelectorAll('[data-preview]').forEach((item) => {
     const active = item.dataset.preview === preview;
     item.classList.toggle('active', active); item.setAttribute('aria-pressed', String(active));
   });
+  if (subtitles.length && video.currentTime * 1000 >= subtitles[subtitles.length - 1].end) {
+    video.currentTime = subtitles[0].start / 1000;
+  }
   updateOverlay();
 }));
 
 document.querySelector('#saveButton').addEventListener('click', () => {
   revisionNumber++;
-  revision.textContent = `Revision ${revisionNumber}`;
-  status.textContent = 'Saved in this browser only. The fixed sample video is unchanged.';
+  revision.textContent = `修订 ${revisionNumber}`;
+  status.textContent = '已保存本次浏览器内的修订；样例视频文件未改变。';
 });
 
 document.querySelector('#downloadButton').addEventListener('click', () => {
   const url = URL.createObjectURL(new Blob([makeSrt()], { type: 'application/x-subrip;charset=utf-8' }));
-  const link = document.createElement('a'); link.href = url; link.download = 'sample.edited.zh.srt'; link.click();
-  URL.revokeObjectURL(url); status.textContent = 'Your edited Chinese SRT has been downloaded.';
+  const link = document.createElement('a'); link.href = url; link.download = 'sample.edited.zh.srt';
+  document.body.append(link);
+  link.click();
+  link.remove();
+  window.setTimeout(() => URL.revokeObjectURL(url), 1000);
+  status.textContent = `已下载包含全部 ${subtitles.length} 条字幕的中文 SRT。`;
 });
 
 loadSample();
+
+menuButton.addEventListener('click', () => {
+  const isOpen = menuButton.getAttribute('aria-expanded') === 'true';
+  menuButton.setAttribute('aria-expanded', String(!isOpen));
+  menuButton.setAttribute('aria-label', isOpen ? '打开导航菜单' : '关闭导航菜单');
+  navLinks.classList.toggle('open', !isOpen);
+});
+
+navLinks.querySelectorAll('a').forEach((link) => link.addEventListener('click', () => {
+  menuButton.setAttribute('aria-expanded', 'false');
+  menuButton.setAttribute('aria-label', '打开导航菜单');
+  navLinks.classList.remove('open');
+}));
