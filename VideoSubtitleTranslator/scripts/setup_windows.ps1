@@ -18,6 +18,14 @@ if ([string]::IsNullOrWhiteSpace($PythonCommand)) {
     $PythonCommand = if (Get-Command "py" -ErrorAction SilentlyContinue) { "py" } else { "python" }
 }
 
+function Update-ProcessPath {
+    $machinePath = [System.Environment]::GetEnvironmentVariable("Path", "Machine")
+    $userPath = [System.Environment]::GetEnvironmentVariable("Path", "User")
+    $pathSegments = @($machinePath, $userPath, $env:Path) |
+        Where-Object { -not [string]::IsNullOrWhiteSpace($_) }
+    $env:Path = [string]::Join(";", $pathSegments)
+}
+
 function Invoke-CheckedCommand {
     param(
         [Parameter(Mandatory = $true)]
@@ -65,8 +73,14 @@ function Install-WingetPackageIfMissing {
 
 Write-Host "Setting up VideoSubtitleTranslator for Windows..."
 
+# Long-running terminals inherit an old PATH. Refresh it so rerunning the script
+# can see packages that winget installed during an earlier invocation.
+Update-ProcessPath
+
 Install-WingetPackageIfMissing -CommandName "yt-dlp" -PackageId "yt-dlp.yt-dlp"
+Update-ProcessPath
 Install-WingetPackageIfMissing -CommandName "ffmpeg" -PackageId "Gyan.FFmpeg"
+Update-ProcessPath
 
 if (-not (Get-Command $PythonCommand -ErrorAction SilentlyContinue)) {
     throw "Python command '$PythonCommand' was not found. Install Python 3 and run this script again."
