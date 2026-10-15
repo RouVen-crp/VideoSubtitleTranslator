@@ -6,6 +6,7 @@
 [Dd]ebug/
 artifacts/
 TestResults/
+downloads/
 
 # NuGet
 packages/
