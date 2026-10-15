@@ -68,12 +68,26 @@ public sealed class DefaultBurnSubtitleStep : BurnSubtitleStepBase
         var bitrateArgs = targetBitrateKbps.HasValue
             ? $" -b:v {targetBitrateKbps.Value}k -maxrate {targetBitrateKbps.Value}k -bufsize {targetBitrateKbps.Value * 2}k"
             : string.Empty;
+        var escapedSubtitlePath = EscapeSubtitleFilterPath(subtitlePath);
 
         if (!string.Equals(qualityPreset?.Trim(), "high", StringComparison.OrdinalIgnoreCase) && !targetBitrateKbps.HasValue)
-            return $"-i \"{dirs.VideoPath}\" -vf \"subtitles='{subtitlePath}'\" -c:a copy \"{outputPath}\"";
+            return $"-i \"{dirs.VideoPath}\" -vf \"subtitles='{escapedSubtitlePath}'\" -c:a copy \"{outputPath}\"";
 
         return
-            $"-i \"{dirs.VideoPath}\" -vf \"subtitles='{subtitlePath}'\" -c:v {encoder}{bitrateArgs} -c:a copy \"{outputPath}\"";
+            $"-i \"{dirs.VideoPath}\" -vf \"subtitles='{escapedSubtitlePath}'\" -c:v {encoder}{bitrateArgs} -c:a copy \"{outputPath}\"";
+    }
+
+    internal static string EscapeSubtitleFilterPath(string subtitlePath)
+    {
+        return subtitlePath
+            .Replace('\\', '/')
+            .Replace(":", "\\:");
+    }
+
+    internal static void EnsureFfmpegSucceeded(int exitCode)
+    {
+        if (exitCode != 0)
+            throw new InvalidOperationException($"ffmpeg subtitle burn failed with exit code {exitCode}.");
     }
 
     internal static string ResolveSubtitlePath(WorkDirs dirs)
@@ -157,12 +171,19 @@ public sealed class DefaultBurnSubtitleStep : BurnSubtitleStepBase
         Console.WriteLine(
             $"[burn] qualityPreset={qualityPreset}, encoder={encoder}, bitrateFloorEnabled={burnConfig.EnforceSourceBitrateFloor}");
 
-        using var process = Process.Start("ffmpeg", ffmpegArgs);
-        process?.WaitForExit();
-
-        if (safeSubtitlePath != subtitlePath)
+        try
         {
-            try { File.Delete(safeSubtitlePath); } catch { }
+            using var process = Process.Start("ffmpeg", ffmpegArgs)
+                ?? throw new InvalidOperationException("Unable to start ffmpeg.");
+            process.WaitForExit();
+            EnsureFfmpegSucceeded(process.ExitCode);
+        }
+        finally
+        {
+            if (safeSubtitlePath != subtitlePath)
+            {
+                try { File.Delete(safeSubtitlePath); } catch { }
+            }
         }
     }
 

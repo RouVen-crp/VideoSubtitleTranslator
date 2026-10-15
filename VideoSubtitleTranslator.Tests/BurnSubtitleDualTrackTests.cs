@@ -26,6 +26,30 @@ public class BurnSubtitleDualTrackTests
     }
 
     [Fact]
+    public void BuildFfmpegArgs_escapes_windows_subtitle_filter_path()
+    {
+        var dirs = new WorkDirs("C:\\videos", ".mp4");
+        var args = DefaultBurnSubtitleStep.BuildFfmpegArgs(
+            dirs,
+            "C:\\videos\\out.mp4",
+            "libx264",
+            "auto",
+            null,
+            "D:\\CODE\\subtitles\\translated.srt");
+
+        Assert.Contains("\"subtitles='D\\:/CODE/subtitles/translated.srt'\"", args);
+    }
+
+    [Fact]
+    public void EnsureFfmpegSucceeded_throws_for_nonzero_exit_code()
+    {
+        var exception = Assert.Throws<InvalidOperationException>(
+            () => DefaultBurnSubtitleStep.EnsureFfmpegSucceeded(-22));
+
+        Assert.Contains("-22", exception.Message);
+    }
+
+    [Fact]
     public void ResolveSubtitlePath_returns_dual_ass_when_exists()
     {
         var tmpDir = Path.Combine(Path.GetTempPath(), Guid.NewGuid().ToString());

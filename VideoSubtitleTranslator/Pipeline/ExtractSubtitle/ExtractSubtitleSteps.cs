@@ -22,9 +22,21 @@ public abstract class ExtractSubtitleStepBase : IPipelineStep
 [PipelineStep("ExtractSubtitle", Implementation = "Default")]
 public sealed class DefaultExtractSubtitleStep : ExtractSubtitleStepBase
 {
-    private static readonly string PythonScriptsDir = Path.GetFullPath(
-        Path.Combine(AppContext.BaseDirectory, "PythonScripts")
-    );
+    private static readonly string PythonScriptsDir = ResolvePythonScriptsDirectory(
+        AppContext.BaseDirectory);
+
+    internal static string ResolvePythonScriptsDirectory(string baseDirectory)
+    {
+        var outputScriptsDirectory = Path.GetFullPath(
+            Path.Combine(baseDirectory, "PythonScripts"));
+        var projectScriptsDirectory = Path.GetFullPath(
+            Path.Combine(baseDirectory, "..", "..", "..", "PythonScripts"));
+
+        if (File.Exists(Path.Combine(projectScriptsDirectory, "subtitler.py")))
+            return projectScriptsDirectory;
+
+        return outputScriptsDirectory;
+    }
 
     private static string ResolvePythonExecutable(string configuredValue)
     {
