@@ -22,6 +22,9 @@
 ```powershell
 cd VideoSubtitleTranslator
 PowerShell -ExecutionPolicy Bypass -File .\scripts\setup_windows.ps1
+$machinePath = [Environment]::GetEnvironmentVariable("Path", "Machine")
+$userPath = [Environment]::GetEnvironmentVariable("Path", "User")
+$env:Path = "$machinePath;$userPath;$env:Path"
 .\PythonScripts\venv\Scripts\Activate.ps1
 Copy-Item .env.example .env
 # 编辑 .env，只填写所需环境变量；没有 cookies 文件时请注释 COOKIES_FILE
@@ -31,7 +34,8 @@ dotnet run --project VideoSubtitleTranslator -- --mode meme "<url>"
 
 `setup_windows.ps1` 会在缺少时通过 `winget` 安装 `yt-dlp` 和 `ffmpeg`，创建
 `PythonScripts\venv`，并安装 `openai-whisper`、`srt`。如果安装了新的外部工具，
-请重新打开 PowerShell，让 PATH 变更生效。
+上述命令会刷新当前 PowerShell 的 `PATH`，使新安装的工具立即可用；也可以关闭并
+重新打开 PowerShell，让 `PATH` 变更生效。
 
 脚本会优先使用 Windows `py` 启动器，避免 Anaconda 环境中的 DLL 冲突。若需要
 重建已存在的生成型虚拟环境，可追加 `-RecreateVenv`。
@@ -80,6 +84,42 @@ $env:VST_PYTHON_PATH = (Resolve-Path .\PythonScripts\venv\Scripts\python.exe)
 brew install uv
 uv venv PythonScripts/venv --python 3.13
 uv pip install --python PythonScripts/venv/bin/python3 -r PythonScripts/requirements.txt
+```
+
+### 手动下载 Whisper turbo 模型（Windows）
+
+网络较慢或自动下载失败时，可以通过 ModelScope 单独下载 `turbo` 模型。在
+`VideoSubtitleTranslator` 项目目录中执行：
+
+```powershell
+# 1. 启动虚拟环境
+.\PythonScripts\venv\Scripts\Activate.ps1
+
+# 2. 安装 ModelScope
+python -m pip install modelscope
+
+# 3. 只下载模型 checkpoint
+modelscope download --model iic/Whisper-large-v3-turbo/large-v3-turbo.pt --local_dir 'D:\CODE\myApp\VideoSubtitleTranslator\VideoSubtitleTranslator\PythonScripts\models\whisper'
+```
+
+如果仓库不在上述位置，请将 `--local_dir` 替换为当前项目的
+`PythonScripts\models\whisper` 绝对路径。下载完成后应存在以下单个 checkpoint
+文件：
+
+```text
+PythonScripts\models\whisper\large-v3-turbo.pt
+```
+
+该目录已被 Git 忽略，不会提交约 1.5 GB 的模型文件。可用以下命令校验下载结果：
+
+```powershell
+Get-FileHash .\PythonScripts\models\whisper\large-v3-turbo.pt -Algorithm SHA256
+```
+
+预期 SHA-256：
+
+```text
+aff26ae408abcba5fbf8813c21e62b0941638c5f6eebfb145be0c9839262a19a
 ```
 
 ## 配置文件
