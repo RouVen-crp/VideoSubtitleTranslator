@@ -22,6 +22,7 @@
 ```powershell
 cd VideoSubtitleTranslator
 PowerShell -ExecutionPolicy Bypass -File .\scripts\setup_windows.ps1
+.\PythonScripts\venv\Scripts\Activate.ps1
 Copy-Item .env.example .env
 # 编辑 .env，只填写所需环境变量；没有 cookies 文件时请注释 COOKIES_FILE
 cd ..
