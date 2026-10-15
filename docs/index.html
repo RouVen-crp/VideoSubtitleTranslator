@@ -84,9 +84,12 @@
                 <p class="pane-label">逐句校对</p>
                 <h3 id="editor-title">把译文改成你喜欢的表达。</h3>
               </div>
-              <span id="revision" class="revision">修订 1</span>
+              <div class="editor-meta">
+                <button id="followButton" class="follow-button" type="button" aria-pressed="true" aria-label="自动跟随播放中的字幕，点击暂停跟随">已开启跟随</button>
+                <span id="revision" class="revision">修订 1</span>
+              </div>
             </div>
-            <div id="rows" class="rows"></div>
+            <div id="rows" class="rows" tabindex="0" role="region" aria-label="可编辑字幕列表"></div>
             <div class="actions">
               <button id="saveButton" class="button-primary" type="button">保存本次修订</button>
               <button id="downloadButton" class="button-secondary" type="button">下载 SRT</button>

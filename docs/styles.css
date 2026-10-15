@@ -97,13 +97,17 @@ h1 span { color: var(--blue); }
 .editor-heading { align-items: flex-start; margin-bottom: 13px; }
 .editor-heading .pane-label { display: block; margin: 0 0 4px; }
 .editor-heading h3 { margin: 0; font-size: 20px; font-weight: 500; letter-spacing: -.02em; }
+.editor-meta { display: flex; align-items: center; justify-content: flex-end; flex-wrap: wrap; gap: 8px; }
 .revision { padding: 5px 9px; border-radius: 999px; background: var(--yellow-light); color: #594900; font-size: 10px; font-weight: 600; white-space: nowrap; }
+.follow-button { min-height: 30px; padding: 0 10px; border: 1px solid var(--hairline); border-radius: 999px; background: #fff; color: var(--steel); font-size: 10px; cursor: pointer; white-space: nowrap; }
+.follow-button[aria-pressed="true"] { border-color: #dce3ff; background: #f0f3ff; color: var(--blue); }
 .preview-controls { display: flex; align-items: center; flex-wrap: wrap; gap: 7px; margin: 16px 0 0; }
 .control-label { margin-right: 3px; color: var(--steel); font-size: 11px; }
 .toggle { min-height: 34px; padding: 0 12px; border: 1px solid var(--hairline); border-radius: 999px; background: #fff; color: var(--steel); font-size: 11px; cursor: pointer; }
 .toggle.active { border-color: var(--ink); background: var(--ink); color: #fff; }
-.rows { overflow: visible; }
+.rows { max-height: min(66vh, 680px); overflow-y: auto; overscroll-behavior: contain; scrollbar-gutter: stable; padding-right: 4px; }
 .subtitle-row { display: grid; grid-template-columns: auto minmax(0, 1fr); gap: 10px; padding: 13px 0; border-top: 1px solid var(--hairline-soft); }
+.subtitle-row.is-active { padding-right: 8px; padding-left: 8px; border-top-color: #dce3ff; border-radius: 8px; background: #f0f3ff; }
 .timestamp { align-self: start; min-height: 32px; padding: 0 9px; border: 1px solid var(--hairline); border-radius: 999px; background: #fff; color: var(--blue); font-family: ui-monospace, SFMono-Regular, Consolas, monospace; font-size: 10px; white-space: nowrap; cursor: pointer; }
 .subtitle-copy { min-width: 0; }
 .source { margin: 0 0 8px; color: var(--ink); font-size: 12px; line-height: 1.5; }

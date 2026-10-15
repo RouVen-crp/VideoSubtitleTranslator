@@ -8,6 +8,7 @@ const status = document.querySelector('#status');
 const sampleStatus = document.querySelector('#sampleStatus');
 const revision = document.querySelector('#revision');
 const previewMode = document.querySelector('#previewMode');
+const followButton = document.querySelector('#followButton');
 const menuButton = document.querySelector('#menuButton');
 const navLinks = document.querySelector('#navLinks');
 const subtitles = Array.isArray(globalThis.VST_SAMPLE_SUBTITLES)
@@ -15,6 +16,9 @@ const subtitles = Array.isArray(globalThis.VST_SAMPLE_SUBTITLES)
   : [];
 let preview = 'zh';
 let revisionNumber = 1;
+let followEnabled = true;
+let editingFocused = false;
+let lastFollowedIndex = -1;
 const assetsReady = subtitles.length > 0;
 
 function formatTime(milliseconds) {
@@ -37,6 +41,67 @@ function srtTime(milliseconds) {
 function currentSubtitle() {
   const now = video.currentTime * 1000;
   return subtitles.find((item) => now >= item.start && now < item.end);
+}
+
+function currentSubtitleIndex() {
+  const now = video.currentTime * 1000;
+  return subtitles.findIndex((item) => now >= item.start && now < item.end);
+}
+
+function followTargetIndex() {
+  const now = video.currentTime * 1000;
+  const activeIndex = subtitles.findIndex((item) => now >= item.start && now < item.end);
+  if (activeIndex >= 0) return activeIndex;
+  for (let index = subtitles.length - 1; index >= 0; index--) {
+    if (subtitles[index].end <= now) return index;
+  }
+  return -1;
+}
+
+function scrollRowIntoView(index) {
+  const row = rows.children[index];
+  if (!row) return;
+  const rowTop = row.getBoundingClientRect().top - rows.getBoundingClientRect().top + rows.scrollTop;
+  const rowBottom = rowTop + row.offsetHeight;
+  const behavior = window.matchMedia('(prefers-reduced-motion: reduce)').matches ? 'auto' : 'smooth';
+  if (rowTop < rows.scrollTop) {
+    rows.scrollTo({ top: rowTop, behavior });
+  } else if (rowBottom > rows.scrollTop + rows.clientHeight) {
+    rows.scrollTo({ top: rowBottom - rows.clientHeight, behavior });
+  }
+}
+
+function updateFollowButton() {
+  const editingPause = followEnabled && editingFocused;
+  followButton.setAttribute('aria-pressed', String(followEnabled));
+  followButton.textContent = editingPause ? '编辑时暂停' : followEnabled ? '已开启跟随' : '跟随播放';
+  followButton.setAttribute('aria-label', editingPause
+    ? '正在编辑，自动跟随已暂停；离开编辑框后恢复'
+    : followEnabled ? '自动跟随播放中的字幕，点击暂停跟随' : '已暂停自动跟随，点击跟随播放中的字幕');
+}
+
+function setFollowEnabled(enabled) {
+  followEnabled = enabled;
+  updateFollowButton();
+}
+
+function updateActiveRow() {
+  const activeIndex = currentSubtitleIndex();
+  [...rows.children].forEach((row, index) => {
+    const isActive = index === activeIndex;
+    row.classList.toggle('is-active', isActive);
+    if (isActive) row.setAttribute('aria-current', 'true');
+    else row.removeAttribute('aria-current');
+  });
+  followCurrentCue();
+}
+
+function followCurrentCue(force = false, allowPaused = false) {
+  if ((video.paused && !allowPaused) || !followEnabled || (editingFocused && !force)) return;
+  const targetIndex = followTargetIndex();
+  if (targetIndex < 0 || (!force && targetIndex === lastFollowedIndex)) return;
+  lastFollowedIndex = targetIndex;
+  scrollRowIntoView(targetIndex);
 }
 
 function updateOverlay() {
@@ -67,8 +132,17 @@ function renderRows() {
     const label = document.createElement('label'); label.textContent = `第 ${index + 1} 条 · 中文译文`;
     const textarea = document.createElement('textarea'); textarea.value = item.translated; textarea.rows = 2;
     textarea.addEventListener('input', () => { subtitles[index].translated = textarea.value; updateOverlay(); });
+    textarea.addEventListener('focus', () => { editingFocused = true; updateFollowButton(); });
+    textarea.addEventListener('blur', () => {
+      requestAnimationFrame(() => {
+        editingFocused = rows.contains(document.activeElement) && document.activeElement instanceof HTMLTextAreaElement;
+        updateFollowButton();
+        if (!editingFocused) followCurrentCue(true);
+      });
+    });
     label.append(textarea); copy.append(source, label); row.append(seekButton, copy); rows.append(row);
   });
+  updateActiveRow();
 }
 
 function updateTransport() {
@@ -79,6 +153,7 @@ function updateTransport() {
   playButton.textContent = video.paused ? '播放' : '暂停';
   playButton.setAttribute('aria-label', video.paused ? '播放样例视频' : '暂停样例视频');
   updateOverlay();
+  updateActiveRow();
 }
 
 function makeSrt() {
@@ -112,6 +187,26 @@ video.addEventListener('loadedmetadata', updateTransport);
 video.addEventListener('play', updateTransport);
 video.addEventListener('pause', updateTransport);
 video.addEventListener('error', () => { if (assetsReady) sampleStatus.textContent = '当前浏览器无法播放样例视频。'; });
+followButton.addEventListener('click', () => {
+  const enabled = followButton.getAttribute('aria-pressed') !== 'true';
+  setFollowEnabled(enabled);
+  if (enabled) followCurrentCue(true, true);
+});
+
+function suspendFollowForManualScroll() {
+  if (followEnabled) setFollowEnabled(false);
+}
+
+rows.addEventListener('wheel', suspendFollowForManualScroll, { passive: true });
+rows.addEventListener('touchmove', suspendFollowForManualScroll, { passive: true });
+rows.addEventListener('pointerdown', (event) => {
+  const bounds = rows.getBoundingClientRect();
+  if (event.target === rows && event.clientX >= bounds.right - 16) suspendFollowForManualScroll();
+});
+rows.addEventListener('keydown', (event) => {
+  if (event.target instanceof HTMLTextAreaElement || event.target instanceof HTMLButtonElement) return;
+  if (['ArrowDown', 'ArrowUp', 'PageDown', 'PageUp', 'Home', 'End', ' '].includes(event.key)) suspendFollowForManualScroll();
+});
 
 document.querySelectorAll('[data-preview]').forEach((button) => button.addEventListener('click', () => {
   preview = button.dataset.preview;
