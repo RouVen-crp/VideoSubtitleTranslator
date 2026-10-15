@@ -71,19 +71,31 @@ internal class Program
         );
     }
 
+    internal static string ResolveDefaultWorkspace(string currentDirectory)
+    {
+        var projectDirectory = File.Exists(Path.Combine(currentDirectory, "VideoSubtitleTranslator.csproj"))
+            ? currentDirectory
+            : Path.Combine(currentDirectory, "VideoSubtitleTranslator");
+
+        return Path.GetFullPath(Path.Combine(projectDirectory, "output"));
+    }
+
     private static void Main(string[] args)
     {
         LoadEnv();
         var (mode, positionalArgs) = ParseArgs(args);
 
-        if (positionalArgs.Count < 2)
+        if (positionalArgs.Count < 1)
         {
-            Console.WriteLine("用法: VideoSubtitleTranslator <url> <workspace_dir> [--mode <standard|meme>] [pipeline_config_json_path] [translator_config_json_path]");
+            Console.WriteLine("用法: VideoSubtitleTranslator <url> [workspace_dir] [--mode <standard|meme>] [pipeline_config_json_path] [translator_config_json_path]");
             return;
         }
 
         var url = positionalArgs[0];
-        var workspaceDir = positionalArgs[1];
+        var workspaceDir = positionalArgs.Count >= 2
+            ? positionalArgs[1]
+            : ResolveDefaultWorkspace(Directory.GetCurrentDirectory());
+        Console.WriteLine($"输出目录: {workspaceDir}");
 
         var (defaultPipelinePath, defaultTranslatorPath) = ResolveConfigPaths(mode, AppContext.BaseDirectory);
         var configPath = positionalArgs.Count >= 3

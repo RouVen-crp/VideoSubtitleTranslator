@@ -25,7 +25,7 @@ PowerShell -ExecutionPolicy Bypass -File .\scripts\setup_windows.ps1
 Copy-Item .env.example .env
 # 编辑 .env，只填写所需环境变量；没有 cookies 文件时请注释 COOKIES_FILE
 cd ..
-dotnet run --project VideoSubtitleTranslator -- --mode meme "<url>" "<workspace_dir>"
+dotnet run --project VideoSubtitleTranslator -- --mode meme "<url>"
 ```
 
 `setup_windows.ps1` 会在缺少时通过 `winget` 安装 `yt-dlp` 和 `ffmpeg`，创建
@@ -47,7 +47,7 @@ cd VideoSubtitleTranslator
 ./scripts/init_python_venv.sh
 
 # 3. 运行
-dotnet run --project VideoSubtitleTranslator -- "<url>" "<workspace_dir>" --mode meme
+dotnet run --project VideoSubtitleTranslator -- "<url>" --mode meme
 ```
 
 ## 初始化 Python 环境
@@ -174,17 +174,17 @@ uv pip install --python PythonScripts/venv/bin/python3 -r PythonScripts/requirem
 ### 基本用法
 
 ```bash
-dotnet run --project VideoSubtitleTranslator -- "<url>" "<workspace_dir>"
+dotnet run --project VideoSubtitleTranslator -- "<url>"
 ```
 
 完整参数：
 
 ```
-VideoSubtitleTranslator <url> <workspace_dir> [--mode <standard|meme>] [pipeline_config_json_path] [translator_config_json_path]
+VideoSubtitleTranslator <url> [workspace_dir] [--mode <standard|meme>] [pipeline_config_json_path] [translator_config_json_path]
 ```
 
 - `url`：视频链接。
-- `workspace_dir`：工作根目录。
+- `workspace_dir`：可选，工作根目录；不传时默认为项目目录下的 `output/`。
 - `--mode`：可选，运行模式。`standard`（默认）或 `meme`（短视频口语化翻译+文化注释）。
 - `pipeline_config_json_path`：可选，流程配置路径。
 - `translator_config_json_path`：可选，运行配置路径。
@@ -193,10 +193,13 @@ VideoSubtitleTranslator <url> <workspace_dir> [--mode <standard|meme>] [pipeline
 
 ```bash
 # 标准模式
-dotnet run --project VideoSubtitleTranslator -- "https://www.youtube.com/watch?v=jNQXAC9IVRw" "/tmp/translates"
+dotnet run --project VideoSubtitleTranslator -- "https://www.youtube.com/watch?v=jNQXAC9IVRw"
 
 # Meme 模式（口语化翻译 + 文化注释）
-dotnet run --project VideoSubtitleTranslator -- "https://www.youtube.com/watch?v=xxx" "/tmp/translates" --mode meme
+dotnet run --project VideoSubtitleTranslator -- "https://www.youtube.com/watch?v=xxx" --mode meme
+
+# 自定义输出目录（可选）
+dotnet run --project VideoSubtitleTranslator -- "https://www.youtube.com/watch?v=xxx" "D:\VideoTranslations"
 ```
 
 ### .env 环境变量
