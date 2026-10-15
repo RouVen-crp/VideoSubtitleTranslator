@@ -32,6 +32,9 @@ dotnet run --project VideoSubtitleTranslator -- --mode meme "<url>" "<workspace_
 `PythonScripts\venv`，并安装 `openai-whisper`、`srt`。如果安装了新的外部工具，
 请重新打开 PowerShell，让 PATH 变更生效。
 
+脚本会优先使用 Windows `py` 启动器，避免 Anaconda 环境中的 DLL 冲突。若需要
+重建已存在的生成型虚拟环境，可追加 `-RecreateVenv`。
+
 ### Linux / macOS
 
 ```bash

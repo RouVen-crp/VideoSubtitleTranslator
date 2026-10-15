@@ -1,7 +1,8 @@
 [CmdletBinding()]
 param(
-    [string]$PythonCommand = "python",
-    [switch]$SkipToolInstall
+    [string]$PythonCommand = "",
+    [switch]$SkipToolInstall,
+    [switch]$RecreateVenv
 )
 
 $ErrorActionPreference = "Stop"
@@ -12,6 +13,10 @@ $pythonScriptsDir = Join-Path $projectDir "PythonScripts"
 $venvDir = Join-Path $pythonScriptsDir "venv"
 $venvPython = Join-Path $venvDir "Scripts\python.exe"
 $requirementsFile = Join-Path $pythonScriptsDir "requirements.txt"
+
+if ([string]::IsNullOrWhiteSpace($PythonCommand)) {
+    $PythonCommand = if (Get-Command "py" -ErrorAction SilentlyContinue) { "py" } else { "python" }
+}
 
 function Invoke-CheckedCommand {
     param(
@@ -70,6 +75,17 @@ if (-not (Get-Command $PythonCommand -ErrorAction SilentlyContinue)) {
 Write-Host "[python] Checking $PythonCommand..."
 Invoke-CheckedCommand -Command $PythonCommand -Arguments @("--version")
 
+if ($RecreateVenv -and (Test-Path -LiteralPath $venvDir)) {
+    $resolvedVenvDir = [System.IO.Path]::GetFullPath($venvDir)
+    $resolvedPythonScriptsDir = [System.IO.Path]::GetFullPath($pythonScriptsDir) + [System.IO.Path]::DirectorySeparatorChar
+    if (-not $resolvedVenvDir.StartsWith($resolvedPythonScriptsDir, [System.StringComparison]::OrdinalIgnoreCase)) {
+        throw "Refusing to remove a virtual environment outside $pythonScriptsDir."
+    }
+
+    Write-Host "[python] Removing the existing generated virtual environment..."
+    Remove-Item -LiteralPath $resolvedVenvDir -Recurse -Force
+}
+
 if (-not (Test-Path -LiteralPath $venvPython -PathType Leaf)) {
     Write-Host "[python] Creating virtual environment at $venvDir..."
     Invoke-CheckedCommand -Command $PythonCommand -Arguments @("-m", "venv", $venvDir)
@@ -81,6 +97,12 @@ else {
 Write-Host "[python] Installing Whisper dependencies..."
 Invoke-CheckedCommand -Command $venvPython -Arguments @("-m", "pip", "install", "--upgrade", "pip")
 Invoke-CheckedCommand -Command $venvPython -Arguments @("-m", "pip", "install", "-r", $requirementsFile)
+
+Write-Host "[python] Verifying Whisper imports..."
+Invoke-CheckedCommand -Command $venvPython -Arguments @(
+    "-c",
+    "import whisper, srt, torch; print('Whisper dependencies are ready (torch ' + torch.__version__ + ').')"
+)
 
 Write-Host ""
 Write-Host "Setup completed."
