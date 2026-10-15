@@ -5,6 +5,9 @@ import whisper
 import srt
 from datetime import timedelta
 
+WHISPER_MODEL_DIR = Path(__file__).resolve().parent / "models" / "whisper"
+
+
 def transcribe_to_sentence_level_srt(
         audio_path: str,
         output_srt: str,
@@ -24,7 +27,10 @@ def transcribe_to_sentence_level_srt(
         return
 
     print(f"加载模型：{model_name} ...")
-    model = whisper.load_model(model_name)
+    model = whisper.load_model(
+        model_name,
+        download_root=str(WHISPER_MODEL_DIR)
+    )
 
     print(f"开始转录音频：{audio_path}")
     result = model.transcribe(
@@ -56,7 +62,7 @@ def main():
     parser = argparse.ArgumentParser(description="Whisper 音频 → 句级时间戳 SRT")
     parser.add_argument("audio", help="输入音频文件路径")
     parser.add_argument("--output", default=None, help="输出 SRT 路径（默认：原文件名 .word_level.srt）")
-    parser.add_argument("--model", default="medium", help="模型大小：tiny/base/small/medium/large/large-v3")
+    parser.add_argument("--model", default="medium", help="模型大小：tiny/base/small/medium/large/large-v3/turbo")
     parser.add_argument("--language", default="zh", help="语言代码：zh/en/ja 等，留空=自动检测")
     parser.add_argument("--force", action="store_true", help="强制重新转录，忽略缓存")
 

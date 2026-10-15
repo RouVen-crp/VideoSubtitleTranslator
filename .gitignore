@@ -41,6 +41,7 @@ Thumbs.db
 **/.venv/
 **/__pycache__/
 **/*.pyc
+VideoSubtitleTranslator/PythonScripts/models/whisper/
 
 # Runtime workspace/temp outputs
 **/*.tmp
