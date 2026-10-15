@@ -35,10 +35,19 @@ public sealed class DefaultExtractSubtitleStep : ExtractSubtitleStepBase
         if (File.Exists(outputVenvPython))
             return outputVenvPython;
 
+        var outputWindowsVenvPython = Path.Combine(PythonScriptsDir, "venv", "Scripts", "python.exe");
+        if (File.Exists(outputWindowsVenvPython))
+            return outputWindowsVenvPython;
+
         var projectVenvPython = Path.GetFullPath(
             Path.Combine(AppContext.BaseDirectory, "..", "..", "..", "PythonScripts", "venv", "bin", "python3"));
         if (File.Exists(projectVenvPython))
             return projectVenvPython;
+
+        var projectWindowsVenvPython = Path.GetFullPath(
+            Path.Combine(AppContext.BaseDirectory, "..", "..", "..", "PythonScripts", "venv", "Scripts", "python.exe"));
+        if (File.Exists(projectWindowsVenvPython))
+            return projectWindowsVenvPython;
 
         return "python3";
     }

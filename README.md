@@ -17,6 +17,23 @@
 
 ## 快速开始
 
+### Windows（PowerShell）
+
+```powershell
+cd VideoSubtitleTranslator
+PowerShell -ExecutionPolicy Bypass -File .\scripts\setup_windows.ps1
+Copy-Item .env.example .env
+# 编辑 .env，只填写所需环境变量；没有 cookies 文件时请注释 COOKIES_FILE
+cd ..
+dotnet run --project VideoSubtitleTranslator -- --mode meme "<url>" "<workspace_dir>"
+```
+
+`setup_windows.ps1` 会在缺少时通过 `winget` 安装 `yt-dlp` 和 `ffmpeg`，创建
+`PythonScripts\venv`，并安装 `openai-whisper`、`srt`。如果安装了新的外部工具，
+请重新打开 PowerShell，让 PATH 变更生效。
+
+### Linux / macOS
+
 ```bash
 # 1. 配置环境变量
 cp .env.example .env
@@ -32,7 +49,7 @@ dotnet run --project VideoSubtitleTranslator -- "<url>" "<workspace_dir>" --mode
 
 ## 初始化 Python 环境
 
-在 `VideoSubtitleTranslator` 目录执行：
+Linux / macOS 在 `VideoSubtitleTranslator` 目录执行：
 
 ```bash
 ./scripts/init_python_venv.sh
