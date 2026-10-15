@@ -6,8 +6,7 @@
 [Dd]ebug/
 artifacts/
 TestResults/
-downloads/
-VideoSubtitleTranslator/output/
+
 
 # NuGet
 packages/
@@ -49,3 +48,8 @@ VideoSubtitleTranslator/PythonScripts/models/whisper/
 
 # agents and dev docs
 
+docs/DESIGN.md
+
+# output and temp files
+downloads/
+VideoSubtitleTranslator/output/
