@@ -76,6 +76,7 @@ internal class Program
             Console.Error,
             isInteractive: !Console.IsInputRedirected && !Console.IsOutputRedirected,
             currentDirectory: Directory.GetCurrentDirectory(),
-            standardInput: Console.In);
+            standardInput: Console.In,
+            terminal: new SystemCliTerminal());
     }
 }

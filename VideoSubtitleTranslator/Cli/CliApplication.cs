@@ -14,15 +14,22 @@ public static class CliApplication
         bool isInteractive,
         string currentDirectory,
         CancellationToken cancellationToken = default,
-        TextReader? standardInput = null)
+        TextReader? standardInput = null,
+        ICliTerminal? terminal = null,
+        Action<TranslationResult>? onTranslationCompleted = null,
+        string? interactivePromptHint = null)
     {
         if (args.Length == 0)
         {
             if (isInteractive)
             {
-                standardOutput.WriteLine("zimu 交互界面即将开放。现在可以运行：");
-                WriteHelp(standardOutput);
-                return Success;
+                return await new GuidedCliInterface(
+                    workflow,
+                    standardOutput,
+                    standardError,
+                    terminal ?? new SystemCliTerminal(),
+                    currentDirectory,
+                    cancellationToken).RunAsync();
             }
 
             standardError.WriteLine("未提供命令。请先运行以下命令：");
@@ -71,6 +78,7 @@ public static class CliApplication
                     standardError.WriteLine("恢复后未找到中文字幕文件。");
                     return TranslationError;
                 }
+                onTranslationCompleted?.Invoke(resumed);
                 standardOutput.WriteLine($"任务 {args[1]} 已完成：{Path.GetFullPath(resumed.SubtitlePath)}");
                 return Success;
             }
@@ -209,6 +217,7 @@ public static class CliApplication
                 return TranslationError;
             }
 
+            onTranslationCompleted?.Invoke(result);
             standardOutput.WriteLine($"中文字幕已生成：{Path.GetFullPath(result.SubtitlePath)}");
             if (!string.IsNullOrWhiteSpace(result.TaskId)) standardOutput.WriteLine($"任务 ID：{result.TaskId}");
             if (!string.IsNullOrWhiteSpace(result.SidecarSubtitlePath))
@@ -220,7 +229,9 @@ public static class CliApplication
 
             if (isInteractive && !string.IsNullOrWhiteSpace(result.TaskId) && workflow is ICliPlaybackWorkflow completedPlaybackWorkflow)
             {
-                standardOutput.Write("现在播放视频并加载中文字幕？[y/N] ");
+                standardOutput.Write("现在播放视频并加载中文字幕？[y/N]");
+                if (!string.IsNullOrWhiteSpace(interactivePromptHint)) standardOutput.Write($" | {interactivePromptHint}");
+                standardOutput.Write(" ");
                 var choice = await (standardInput ?? Console.In).ReadLineAsync(cancellationToken);
                 if (string.Equals(choice?.Trim(), "y", StringComparison.OrdinalIgnoreCase))
                 {
@@ -420,7 +431,7 @@ public static class CliApplication
         writer.WriteLine("  zimu download https://example.com/video");
     }
 
-    private static string StatusLabel(CliTaskStatus status) => status switch
+    internal static string StatusLabel(CliTaskStatus status) => status switch
     {
         CliTaskStatus.Queued => "排队中", CliTaskStatus.Running => "运行中", CliTaskStatus.Completed => "已完成",
         CliTaskStatus.Failed => "失败", CliTaskStatus.Interrupted => "已中断", _ => "未知"
@@ -449,7 +460,7 @@ public static class CliApplication
         writer.WriteLine("播放已完成的任务并加载中文字幕；运行 zimu history 查看任务 ID。");
     }
 
-    private static void WritePlaybackResult(VideoPlaybackResult playback, TextWriter writer)
+    internal static void WritePlaybackResult(VideoPlaybackResult playback, TextWriter writer)
     {
         if (playback.UsedCompatiblePlayer)
         {
