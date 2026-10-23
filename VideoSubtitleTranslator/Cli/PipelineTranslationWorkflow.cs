@@ -1,5 +1,7 @@
 using VideoSubtitleTranslator.Pipeline;
-using VideoSubtitleTranslator.Workbench;
+using System.Diagnostics;
+using System.Text.Json;
+using System.ComponentModel;
 
 namespace VideoSubtitleTranslator.Cli;
 
@@ -25,10 +27,7 @@ public sealed class PipelineTranslationWorkflow : ITranslationWorkflow
             return TranslateLocalAsync(request, cancellationToken);
 
         var (pipelinePath, translatorPath) = Program.ResolveConfigPaths(request.Mode, AppContext.BaseDirectory);
-        var translatorConfig = TranslatorRuntimeConfig.Load(translatorPath);
-        translatorConfig.Mode = request.Mode;
-        // Keep the CLI's fast SRT path independent of the legacy Web workbench defaults.
-        translatorConfig.Burn.Enabled = false;
+        var translatorConfig = LoadCliTranslatorConfig(translatorPath, request.Mode);
 
         var initialContext = new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase)
         {
@@ -68,20 +67,19 @@ public sealed class PipelineTranslationWorkflow : ITranslationWorkflow
             throw new FileNotFoundException("本地视频文件不存在。", request.Input);
         var validationError = await _mediaValidator(request.Input, cancellationToken);
         if (!string.IsNullOrWhiteSpace(validationError))
-            throw new InvalidDataException(validationError);
+            throw new LocalVideoValidationException(validationError);
 
         var (pipelinePath, translatorPath) = Program.ResolveConfigPaths(request.Mode, AppContext.BaseDirectory);
-        var translatorConfig = TranslatorRuntimeConfig.Load(translatorPath);
-        translatorConfig.Mode = request.Mode;
-        translatorConfig.Burn.Enabled = false;
+        var translatorConfig = LoadCliTranslatorConfig(translatorPath, request.Mode);
 
         var extension = Path.GetExtension(request.Input);
         var title = Path.GetFileNameWithoutExtension(request.Input);
+        var workspacePath = GetAvailableWorkspacePath(request.WorkspaceRoot, title);
         var initialContext = new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase)
         {
             ["Url"] = request.Input,
             ["WorkspaceRoot"] = request.WorkspaceRoot,
-            ["WorkspacePath"] = Path.Combine(request.WorkspaceRoot, title),
+            ["WorkspacePath"] = workspacePath,
             ["VideoExt"] = extension,
             ["VideoTitle"] = title,
             ["VideoAuthor"] = string.Empty,
@@ -95,7 +93,7 @@ public sealed class PipelineTranslationWorkflow : ITranslationWorkflow
             Console.SetOut(Console.Error);
             Directory.CreateDirectory(initialContext["WorkspacePath"]);
             var dirs = new WorkDirs(initialContext["WorkspacePath"], extension);
-            File.Copy(request.Input, dirs.VideoPath, overwrite: true);
+            File.Copy(request.Input, dirs.VideoPath, overwrite: false);
 
             var config = PipelineRunner.LoadConfig(pipelinePath);
             config.Steps = config.Steps.Where(step => step.Step is not ("InitMetadata" or "Download" or "BurnSubtitle")).ToList();
@@ -115,6 +113,23 @@ public sealed class PipelineTranslationWorkflow : ITranslationWorkflow
         }
     }
 
+    private static TranslatorRuntimeConfig LoadCliTranslatorConfig(string translatorPath, string mode)
+    {
+        var config = TranslatorRuntimeConfig.Load(translatorPath);
+        config.Mode = mode;
+        // Keep the CLI's fast SRT path independent of the legacy Web workbench defaults.
+        config.Burn.Enabled = false;
+        return config;
+    }
+
+    private static string GetAvailableWorkspacePath(string workspaceRoot, string title)
+    {
+        var candidate = Path.Combine(workspaceRoot, title);
+        for (var suffix = 2; Directory.Exists(candidate); suffix++)
+            candidate = Path.Combine(workspaceRoot, $"{title}_{suffix}");
+        return candidate;
+    }
+
     private static string GetAvailableSidecarPath(string inputPath)
     {
         var directory = Path.GetDirectoryName(inputPath)!;
@@ -127,7 +142,42 @@ public sealed class PipelineTranslationWorkflow : ITranslationWorkflow
 
     private static async Task<string?> ValidateMediaAsync(string path, CancellationToken cancellationToken)
     {
-        var result = await new MediaProbe().ValidateAsync(path, cancellationToken);
-        return result.IsValid ? null : result.Error ?? "无法读取视频媒体信息。请确认文件未损坏，且已安装 ffmpeg/ffprobe。";
+        using var process = new Process();
+        process.StartInfo = new ProcessStartInfo
+        {
+            FileName = "ffprobe",
+            UseShellExecute = false,
+            RedirectStandardOutput = true,
+            RedirectStandardError = true,
+            CreateNoWindow = true
+        };
+        foreach (var argument in new[] { "-v", "error", "-show_entries", "stream=codec_type", "-of", "json", path })
+            process.StartInfo.ArgumentList.Add(argument);
+
+        try
+        {
+            process.Start();
+            var outputTask = process.StandardOutput.ReadToEndAsync(cancellationToken);
+            _ = process.StandardError.ReadToEndAsync(cancellationToken);
+            await process.WaitForExitAsync(cancellationToken);
+            if (process.ExitCode != 0)
+                return "无法读取视频媒体信息。请确认文件未损坏，并安装 ffprobe。";
+
+            using var document = JsonDocument.Parse(await outputTask);
+            var streamTypes = document.RootElement.GetProperty("streams").EnumerateArray()
+                .Select(stream => stream.GetProperty("codec_type").GetString())
+                .ToHashSet(StringComparer.OrdinalIgnoreCase);
+            return streamTypes.Contains("video") && streamTypes.Contains("audio")
+                ? null
+                : "视频必须同时包含可读取的视频和音频轨道。";
+        }
+        catch (Win32Exception)
+        {
+            return "找不到 ffprobe。请安装 FFmpeg 后重试。";
+        }
+        catch (JsonException)
+        {
+            return "无法读取视频媒体信息。请确认文件未损坏且格式受 FFmpeg 支持。";
+        }
     }
 }

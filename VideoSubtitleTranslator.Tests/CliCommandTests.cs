@@ -73,6 +73,24 @@ public sealed class CliCommandTests
     }
 
     [Fact]
+    public async Task Translate_reports_the_source_sidecar_location_when_workflow_copies_it()
+    {
+        using var temp = new TemporaryDirectory();
+        Directory.CreateDirectory(temp.Path);
+        var subtitlePath = Path.Combine(temp.Path, "task", "translated.srt");
+        var sidecarPath = Path.Combine(temp.Path, "lesson.zh.srt");
+        var workflow = new RecordingTranslationWorkflow(subtitlePath) { SidecarSubtitlePath = sidecarPath };
+        using var output = new StringWriter();
+        using var error = new StringWriter();
+
+        var exitCode = await CliApplication.RunAsync(
+            ["translate", "https://example.com/video"], workflow, output, error, false, temp.Path);
+
+        Assert.Equal(0, exitCode);
+        Assert.Contains(Path.GetFullPath(sidecarPath), output.ToString());
+    }
+
+    [Fact]
     public async Task Translate_rejects_missing_local_video_with_actionable_error()
     {
         using var temp = new TemporaryDirectory();
@@ -96,6 +114,8 @@ public sealed class CliCommandTests
         Directory.CreateDirectory(temp.Path);
         await File.WriteAllTextAsync(videoPath, "video");
         var workspace = Path.Combine(temp.Path, "workspace");
+        Directory.CreateDirectory(Path.Combine(workspace, "lesson"));
+        await File.WriteAllTextAsync(Path.Combine(workspace, "lesson", "video.mp4"), "preserve");
         var existingSidecar = Path.Combine(temp.Path, "lesson.zh.srt");
         await File.WriteAllTextAsync(existingSidecar, "keep");
         PipelineConfig? observedConfig = null;
@@ -105,6 +125,7 @@ public sealed class CliCommandTests
             {
                 observedConfig = config;
                 Assert.Equal(videoPath, context["Url"]);
+                Assert.EndsWith("lesson_2", context["WorkspacePath"]);
                 Assert.True(File.Exists(Path.Combine(context["WorkspacePath"], "video.mp4")));
                 var dirs = new WorkDirs(context["WorkspacePath"], ".mp4");
                 File.WriteAllText(dirs.TranslatedSubtitlePath, "translated");
@@ -116,6 +137,7 @@ public sealed class CliCommandTests
         Assert.NotNull(observedConfig);
         Assert.DoesNotContain(observedConfig!.Steps, step => step.Step is "InitMetadata" or "Download" or "BurnSubtitle");
         Assert.Equal("keep", await File.ReadAllTextAsync(existingSidecar));
+        Assert.Equal("preserve", await File.ReadAllTextAsync(Path.Combine(workspace, "lesson", "video.mp4")));
         Assert.Equal("translated", await File.ReadAllTextAsync(result.SidecarSubtitlePath!));
         Assert.EndsWith("lesson.zh.2.srt", result.SidecarSubtitlePath);
     }
@@ -136,11 +158,33 @@ public sealed class CliCommandTests
                 return new Dictionary<string, string>();
             });
 
-        var exception = await Assert.ThrowsAsync<InvalidDataException>(() =>
+        var exception = await Assert.ThrowsAsync<LocalVideoValidationException>(() =>
             workflow.TranslateAsync(new TranslationRequest(videoPath, "standard", temp.Path, true)));
 
         Assert.Contains("媒体无法读取", exception.Message);
         Assert.False(pipelineRan);
+    }
+
+    [Fact]
+    public async Task Cli_shows_safe_local_media_diagnostic_and_returns_nonzero()
+    {
+        using var temp = new TemporaryDirectory();
+        Directory.CreateDirectory(temp.Path);
+        var videoPath = Path.Combine(temp.Path, "lesson.mp4");
+        await File.WriteAllTextAsync(videoPath, "video");
+        var workflow = new RecordingTranslationWorkflow(Path.Combine(temp.Path, "unused.srt"))
+        {
+            Failure = new LocalVideoValidationException("找不到 ffprobe。请安装 FFmpeg 后重试。")
+        };
+        using var output = new StringWriter();
+        using var error = new StringWriter();
+
+        var exitCode = await CliApplication.RunAsync(
+            ["translate", videoPath], workflow, output, error, false, temp.Path);
+
+        Assert.NotEqual(0, exitCode);
+        Assert.Contains("找不到 ffprobe", error.ToString());
+        Assert.Equal(videoPath, workflow.Request?.Input);
     }
 
     [Fact]
@@ -254,6 +298,7 @@ public sealed class CliCommandTests
     {
         public TranslationRequest? Request { get; private set; }
         public Exception? Failure { get; init; }
+        public string? SidecarSubtitlePath { get; init; }
         public TranslationResult? Result { get; private set; }
 
         public Task<TranslationResult> TranslateAsync(TranslationRequest request, CancellationToken cancellationToken = default)
@@ -262,7 +307,7 @@ public sealed class CliCommandTests
             if (Failure is not null) throw Failure;
             Directory.CreateDirectory(Path.GetDirectoryName(subtitlePath)!);
             File.WriteAllText(subtitlePath, "1\n00:00:00,000 --> 00:00:01,000\n你好\n", Encoding.UTF8);
-            Result = new TranslationResult(subtitlePath);
+            Result = new TranslationResult(subtitlePath, SidecarSubtitlePath);
             return Task.FromResult(Result);
         }
     }

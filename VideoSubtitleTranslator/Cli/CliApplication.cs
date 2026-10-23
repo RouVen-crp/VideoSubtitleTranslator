@@ -74,6 +74,11 @@ public static class CliApplication
             standardError.WriteLine("翻译已取消。");
             return TranslationError;
         }
+        catch (LocalVideoValidationException exception)
+        {
+            standardError.WriteLine(exception.Message);
+            return TranslationError;
+        }
         catch (Exception)
         {
             // External tool and model exceptions can contain request details. Keep CLI diagnostics
