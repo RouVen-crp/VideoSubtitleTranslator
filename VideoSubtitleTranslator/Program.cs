@@ -1,8 +1,7 @@
 using System;
-using System.Collections.Generic;
 using System.IO;
-using VideoSubtitleTranslator.Pipeline;
 using VideoSubtitleTranslator.Workbench;
+using VideoSubtitleTranslator.Cli;
 
 namespace VideoSubtitleTranslator;
 
@@ -20,7 +19,6 @@ internal class Program
         var envPath = searchPaths.FirstOrDefault(File.Exists);
         if (envPath is null)
         {
-            Console.WriteLine($"[env] not found, searched: {string.Join(", ", searchPaths)}");
             return;
         }
         foreach (var line in File.ReadAllLines(envPath))
@@ -36,25 +34,6 @@ internal class Program
             if (key.Length > 0 && Environment.GetEnvironmentVariable(key) is null)
                 Environment.SetEnvironmentVariable(key, value);
         }
-        Console.WriteLine($"[env] loaded {envPath}");
-    }
-    internal static (string mode, List<string> positional) ParseArgs(string[] args)
-    {
-        var mode = "standard";
-        var positional = new List<string>();
-        for (var i = 0; i < args.Length; i++)
-        {
-            if (args[i] == "--mode" && i + 1 < args.Length)
-            {
-                mode = args[i + 1].ToLowerInvariant();
-                i++;
-            }
-            else
-            {
-                positional.Add(args[i]);
-            }
-        }
-        return (mode, positional);
     }
 
     internal static (string pipelineConfig, string translatorConfig) ResolveConfigPaths(string mode, string baseDir)
@@ -81,71 +60,21 @@ internal class Program
         return Path.GetFullPath(Path.Combine(projectDirectory, "output"));
     }
 
-    private static async Task Main(string[] args)
+    private static async Task<int> Main(string[] args)
     {
-        LoadEnv();
-        var (mode, positionalArgs) = ParseArgs(args);
-
         if (args.Any(a => string.Equals(a, "--web", StringComparison.OrdinalIgnoreCase)))
         {
+            LoadEnv();
             await WorkbenchHost.RunAsync(args);
-            return;
+            return 0;
         }
 
-        if (positionalArgs.Count < 1)
-        {
-            Console.WriteLine("用法: VideoSubtitleTranslator <url> [workspace_dir] [--mode <standard|meme>] [pipeline_config_json_path] [translator_config_json_path]");
-            return;
-        }
-
-        var url = positionalArgs[0];
-        var workspaceDir = positionalArgs.Count >= 2
-            ? positionalArgs[1]
-            : ResolveDefaultWorkspace(Directory.GetCurrentDirectory());
-        Console.WriteLine($"输出目录: {workspaceDir}");
-
-        var (defaultPipelinePath, defaultTranslatorPath) = ResolveConfigPaths(mode, AppContext.BaseDirectory);
-        var configPath = positionalArgs.Count >= 3
-            ? positionalArgs[2]
-            : defaultPipelinePath;
-        var translatorConfigPath = positionalArgs.Count >= 4
-            ? positionalArgs[3]
-            : defaultTranslatorPath;
-
-        var translatorConfig = TranslatorRuntimeConfig.Load(translatorConfigPath);
-        translatorConfig.Mode = mode;
-
-        var initialContext = new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase)
-        {
-            ["Url"] = url,
-            ["WorkspaceRoot"] = workspaceDir,
-            ["ConfigPath"] = configPath,
-            ["TranslatorConfigPath"] = translatorConfigPath,
-            ["Mode"] = mode
-        };
-
-        try
-        {
-            var config = PipelineRunner.LoadConfig(configPath);
-            var registry = new PipelineRegistry();
-            var runner = new PipelineRunner(registry);
-
-            runner.Run(config, initialContext, translatorConfig);
-
-            Console.WriteLine("Done");
-        }
-        catch (FileNotFoundException ex)
-        {
-            Console.WriteLine($"未找到文件: {ex.FileName ?? "unknown"}");
-            Console.WriteLine(ex.Message);
-        }
-        catch (OperationCanceledException ex)
-        {
-            Console.WriteLine($"流程被取消：{ex.Message}");
-        }
-        catch (Exception ex)
-        {
-            Console.WriteLine($"执行过程中发生错误: {ex}");
-        }
+        return await CliApplication.RunAsync(
+            args,
+            new PipelineTranslationWorkflow(),
+            Console.Out,
+            Console.Error,
+            isInteractive: !Console.IsInputRedirected && !Console.IsOutputRedirected,
+            currentDirectory: Directory.GetCurrentDirectory());
     }
 }

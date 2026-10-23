@@ -81,7 +81,7 @@ public static class ApiCaller
             }
             catch (Exception ex) when (attempt == maxRetries)
             {
-                Console.WriteLine($"失败: {ex.Message}");
+                Console.WriteLine($"LLM 请求失败（{ex.GetType().Name}）。");
                 throw;
             }
 

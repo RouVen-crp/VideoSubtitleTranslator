@@ -56,7 +56,7 @@ public sealed class MetaGetterInitMetadataStep : InitMetadataStepBase
 
         if (!string.IsNullOrEmpty(error))
         {
-            Console.WriteLine($"Error from yt-dlp: {error}");
+            Console.WriteLine("yt-dlp metadata lookup returned diagnostic output.");
         }
 
         try
@@ -84,9 +84,9 @@ public sealed class MetaGetterInitMetadataStep : InitMetadataStepBase
 
             return (title, ext, author, uploadDate);
         }
-        catch (JsonException ex)
+        catch (JsonException)
         {
-            Console.WriteLine($"Failed to parse yt-dlp JSON output: {ex.Message}");
+            Console.WriteLine("Failed to parse yt-dlp metadata JSON output.");
             return ("", "", "", "");
         }
     }
@@ -100,7 +100,7 @@ public sealed class MetaGetterInitMetadataStep : InitMetadataStepBase
             throw new InvalidOperationException("No title found");
         }
 
-        Console.WriteLine($"Title: {title}, Ext: {ext}, Author: {author}, UploadDate: {uploadDate}");
+        Console.WriteLine("Video metadata loaded.");
         context["VideoTitle"] = title;
         context["VideoExt"] = ext;
         context["VideoAuthor"] = author;
@@ -108,4 +108,3 @@ public sealed class MetaGetterInitMetadataStep : InitMetadataStepBase
         return context;
     }
 }
-

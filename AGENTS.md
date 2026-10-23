@@ -23,15 +23,18 @@
 
 ```bash
 # 构建
-dotnet build VideoSubtitleTranslator/VideoSubtitleTranslator.sln
+dotnet build VideoSubtitleTranslator.sln
 
 # 运行（从仓库根目录）
-dotnet run --project VideoSubtitleTranslator/VideoSubtitleTranslator -- --mode standard "<url>" "<workspace_dir>"
-dotnet run --project VideoSubtitleTranslator/VideoSubtitleTranslator -- --mode meme "<url>" "<workspace_dir>"
+dotnet run --project VideoSubtitleTranslator/VideoSubtitleTranslator -- translate "<url>"
+dotnet run --project VideoSubtitleTranslator/VideoSubtitleTranslator -- translate "<url>" --mode meme
+dotnet run --project VideoSubtitleTranslator/VideoSubtitleTranslator -- translate "<url>" --workspace "<workspace_dir>"
 
 # 运行（从项目目录 cd VideoSubtitleTranslator/VideoSubtitleTranslator）
-dotnet run -- --mode standard "<url>" "<workspace_dir>"
+dotnet run -- translate "<url>"
 ```
+
+已发布的命令入口为 `zimu`，并提供等效短名 `zm`。
 
 ## 环境准备
 

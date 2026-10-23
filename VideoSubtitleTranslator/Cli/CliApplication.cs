@@ -1,0 +1,176 @@
+namespace VideoSubtitleTranslator.Cli;
+
+public static class CliApplication
+{
+    private const int Success = 0;
+    private const int UsageError = 2;
+    private const int TranslationError = 1;
+
+    public static async Task<int> RunAsync(
+        string[] args,
+        ITranslationWorkflow workflow,
+        TextWriter standardOutput,
+        TextWriter standardError,
+        bool isInteractive,
+        string currentDirectory,
+        CancellationToken cancellationToken = default)
+    {
+        if (args.Length == 0)
+        {
+            if (isInteractive)
+            {
+                standardOutput.WriteLine("zimu 交互界面即将开放。现在可以运行：");
+                WriteHelp(standardOutput);
+                return Success;
+            }
+
+            standardError.WriteLine("未提供命令。请先运行以下命令：");
+            WriteHelp(standardError);
+            return UsageError;
+        }
+
+        if (args.Length == 1 && IsHelp(args[0]))
+        {
+            WriteHelp(standardOutput);
+            return Success;
+        }
+
+        if (!string.Equals(args[0], "translate", StringComparison.OrdinalIgnoreCase))
+        {
+            standardError.WriteLine("未知命令。");
+            WriteHelp(standardError);
+            return UsageError;
+        }
+
+        if (args.Length == 2 && IsHelp(args[1]))
+        {
+            WriteTranslateHelp(standardOutput);
+            return Success;
+        }
+
+        if (!TryParseTranslate(args[1..], currentDirectory, out var request, out var error))
+        {
+            standardError.WriteLine(error);
+            WriteTranslateHelp(standardError);
+            return UsageError;
+        }
+
+        try
+        {
+            var result = await workflow.TranslateAsync(request!, cancellationToken);
+            if (string.IsNullOrWhiteSpace(result.SubtitlePath) || !File.Exists(result.SubtitlePath))
+            {
+                standardError.WriteLine("翻译未生成可用的中文字幕文件。请检查输入视频和翻译依赖后重试。");
+                return TranslationError;
+            }
+
+            standardOutput.WriteLine($"中文字幕已生成：{Path.GetFullPath(result.SubtitlePath)}");
+            return Success;
+        }
+        catch (OperationCanceledException)
+        {
+            standardError.WriteLine("翻译已取消。");
+            return TranslationError;
+        }
+        catch (Exception)
+        {
+            // External tool and model exceptions can contain request details. Keep CLI diagnostics
+            // actionable without echoing arbitrary exception text that could include secret values.
+            standardError.WriteLine("翻译失败。请检查视频链接、yt-dlp、ffmpeg、Python/Whisper、网络和配置后重试。");
+            return TranslationError;
+        }
+    }
+
+    private static bool TryParseTranslate(
+        string[] args,
+        string currentDirectory,
+        out TranslationRequest? request,
+        out string error)
+    {
+        request = null;
+        error = string.Empty;
+        var positional = new List<string>();
+        var mode = "standard";
+        string? workspaceRoot = null;
+
+        for (var i = 0; i < args.Length; i++)
+        {
+            switch (args[i])
+            {
+                case "--mode":
+                    if (i + 1 >= args.Length)
+                    {
+                        error = "--mode 需要 standard 或 meme。";
+                        return false;
+                    }
+
+                    mode = args[++i].ToLowerInvariant();
+                    if (mode is not ("standard" or "meme"))
+                    {
+                        error = "不支持的翻译模式。请选择 standard 或 meme。";
+                        return false;
+                    }
+                    break;
+
+                case "--workspace":
+                    if (i + 1 >= args.Length || args[i + 1].StartsWith("--", StringComparison.Ordinal))
+                    {
+                        error = "--workspace 需要一个目录路径。";
+                        return false;
+                    }
+
+                    workspaceRoot = Path.GetFullPath(args[++i], currentDirectory);
+                    break;
+
+                default:
+                    if (args[i].StartsWith("-", StringComparison.Ordinal))
+                    {
+                        error = "未知选项。";
+                        return false;
+                    }
+                    positional.Add(args[i]);
+                    break;
+            }
+        }
+
+        if (positional.Count != 1)
+        {
+            error = "translate 需要且只接受一个视频 URL。";
+            return false;
+        }
+
+        if (!Uri.TryCreate(positional[0], UriKind.Absolute, out var uri) ||
+            uri.Scheme is not ("http" or "https"))
+        {
+            error = "请输入有效的 HTTP 或 HTTPS 视频 URL。";
+            return false;
+        }
+
+        workspaceRoot ??= Program.ResolveDefaultWorkspace(currentDirectory);
+        request = new TranslationRequest(uri.AbsoluteUri, mode, workspaceRoot);
+        return true;
+    }
+
+    private static bool IsHelp(string value) => value is "--help" or "-h";
+
+    private static void WriteHelp(TextWriter writer)
+    {
+        writer.WriteLine("zimu - 轻量视频字幕翻译工具");
+        writer.WriteLine();
+        writer.WriteLine("用法：");
+        writer.WriteLine("  zimu translate <URL> [--mode standard|meme] [--workspace <目录>]");
+        writer.WriteLine("  zimu --help");
+        writer.WriteLine();
+        writer.WriteLine("示例：");
+        writer.WriteLine("  zimu translate https://example.com/video");
+        writer.WriteLine("  zm translate https://example.com/video");
+        writer.WriteLine("  zimu translate https://example.com/video --mode meme");
+    }
+
+    private static void WriteTranslateHelp(TextWriter writer)
+    {
+        writer.WriteLine("用法：zimu translate <URL> [--mode standard|meme] [--workspace <目录>]");
+        writer.WriteLine("示例：zimu translate https://example.com/video");
+        writer.WriteLine("默认英文翻译为中文，字幕以 SRT 文件交付，不烧录到视频。");
+    }
+}
