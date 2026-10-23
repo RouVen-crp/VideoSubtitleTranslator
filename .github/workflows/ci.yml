@@ -14,8 +14,12 @@ concurrency:
 
 jobs:
   build-and-test:
-    name: Build and test (.NET 10)
-    runs-on: ubuntu-latest
+    name: Build and test (.NET 10, ${{ matrix.os }})
+    runs-on: ${{ matrix.os }}
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, macos-latest, windows-latest]
     steps:
       - name: Check out source
         uses: actions/checkout@v4
@@ -24,6 +28,8 @@ jobs:
         uses: actions/setup-dotnet@v4
         with:
           dotnet-version: 10.0.x
+          cache: true
+          cache-dependency-path: '**/*.csproj'
 
       - name: Restore solution
         run: dotnet restore VideoSubtitleTranslator.sln
