@@ -65,6 +65,8 @@ public static class CliApplication
             }
 
             standardOutput.WriteLine($"中文字幕已生成：{Path.GetFullPath(result.SubtitlePath)}");
+            if (!string.IsNullOrWhiteSpace(result.SidecarSubtitlePath))
+                standardOutput.WriteLine($"源视频旁的字幕：{Path.GetFullPath(result.SidecarSubtitlePath)}");
             return Success;
         }
         catch (OperationCanceledException)
@@ -135,19 +137,34 @@ public static class CliApplication
 
         if (positional.Count != 1)
         {
-            error = "translate 需要且只接受一个视频 URL。";
+            error = "translate 需要且只接受一个视频 URL 或本地视频路径。";
             return false;
         }
 
-        if (!Uri.TryCreate(positional[0], UriKind.Absolute, out var uri) ||
-            uri.Scheme is not ("http" or "https"))
+        if (Uri.TryCreate(positional[0], UriKind.Absolute, out var uri) &&
+            uri.Scheme is "http" or "https")
         {
-            error = "请输入有效的 HTTP 或 HTTPS 视频 URL。";
+            workspaceRoot ??= Program.ResolveDefaultWorkspace(currentDirectory);
+            request = new TranslationRequest(uri.AbsoluteUri, mode, workspaceRoot);
+            return true;
+        }
+
+        var localPath = Path.GetFullPath(positional[0], currentDirectory);
+        if (!File.Exists(localPath))
+        {
+            error = "本地视频文件不存在。请检查路径后重试。";
+            return false;
+        }
+
+        if (!new[] { ".mp4", ".mkv", ".mov", ".webm", ".avi", ".m4v" }
+                .Contains(Path.GetExtension(localPath), StringComparer.OrdinalIgnoreCase))
+        {
+            error = "不支持此视频格式。请提供 MP4、MKV、MOV、WebM、AVI 或 M4V 文件。";
             return false;
         }
 
         workspaceRoot ??= Program.ResolveDefaultWorkspace(currentDirectory);
-        request = new TranslationRequest(uri.AbsoluteUri, mode, workspaceRoot);
+        request = new TranslationRequest(localPath, mode, workspaceRoot, IsLocalFile: true);
         return true;
     }
 
@@ -158,7 +175,7 @@ public static class CliApplication
         writer.WriteLine("zimu - 轻量视频字幕翻译工具");
         writer.WriteLine();
         writer.WriteLine("用法：");
-        writer.WriteLine("  zimu translate <URL> [--mode standard|meme] [--workspace <目录>]");
+        writer.WriteLine("  zimu translate <URL|视频路径> [--mode standard|meme] [--workspace <目录>]");
         writer.WriteLine("  zimu --help");
         writer.WriteLine();
         writer.WriteLine("示例：");
@@ -169,8 +186,9 @@ public static class CliApplication
 
     private static void WriteTranslateHelp(TextWriter writer)
     {
-        writer.WriteLine("用法：zimu translate <URL> [--mode standard|meme] [--workspace <目录>]");
+        writer.WriteLine("用法：zimu translate <URL|视频路径> [--mode standard|meme] [--workspace <目录>]");
         writer.WriteLine("示例：zimu translate https://example.com/video");
+        writer.WriteLine("示例：zimu translate ./lesson.mp4");
         writer.WriteLine("默认英文翻译为中文，字幕以 SRT 文件交付，不烧录到视频。");
     }
 }
