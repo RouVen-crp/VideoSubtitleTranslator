@@ -239,6 +239,7 @@ public sealed class DeepSeekProofreadSubtitleStep : ProofreadSubtitleStepBase
         var mergeCount = 0;
         var rejectCount = 0;
         var invokedCount = 0;
+        var hasMadeModelRequest = false;
 
         var left = source[0];
         var nextIndex = 1;
@@ -250,7 +251,6 @@ public sealed class DeepSeekProofreadSubtitleStep : ProofreadSubtitleStepBase
                 output.Add(left);
                 left = right;
                 nextIndex += 1;
-                if (delayMs > 0) Thread.Sleep(delayMs);
                 continue;
             }
 
@@ -261,7 +261,9 @@ public sealed class DeepSeekProofreadSubtitleStep : ProofreadSubtitleStepBase
             List<SubtitleBlock> candidate = new();
             for (var attempt = 0; attempt < maxAttempts; attempt++)
             {
+                if (hasMadeModelRequest && delayMs > 0) Thread.Sleep(delayMs);
                 lastResponse = ApiCaller.CallApi(GlobalRuntimeConfig.Current.Llm.Model, ProofreadSystemPrompt, prompt).Result;
+                hasMadeModelRequest = true;
                 if (TryParseAndValidate(lastResponse, left, right, out candidate) &&
                     !IsSuspiciousRewrite(left, right, candidate))
                 {
@@ -280,7 +282,6 @@ public sealed class DeepSeekProofreadSubtitleStep : ProofreadSubtitleStepBase
                     parsed = true;
                     break;
                 }
-                Thread.Sleep(delayMs);
             }
 
             if (!parsed)
@@ -322,7 +323,6 @@ public sealed class DeepSeekProofreadSubtitleStep : ProofreadSubtitleStepBase
                 nextIndex += 1;
             }
 
-            if (delayMs > 0) Thread.Sleep(delayMs);
         }
 
         output.Add(left);
@@ -339,4 +339,3 @@ public sealed class DeepSeekProofreadSubtitleStep : ProofreadSubtitleStepBase
         return context;
     }
 }
-
