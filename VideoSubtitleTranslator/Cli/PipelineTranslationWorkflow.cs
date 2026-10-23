@@ -7,7 +7,7 @@ using System.Runtime.InteropServices;
 
 namespace VideoSubtitleTranslator.Cli;
 
-public sealed class PipelineTranslationWorkflow : ICliWorkflow, ICliTaskWorkflow
+public sealed class PipelineTranslationWorkflow : ICliWorkflow, ICliTaskWorkflow, ICliPlaybackWorkflow
 {
     private readonly Func<string, CancellationToken, Task<string?>> _mediaValidator;
     private readonly Func<PipelineConfig, Dictionary<string, string>, TranslatorRuntimeConfig, Dictionary<string, string>> _pipelineRunner;
@@ -15,6 +15,7 @@ public sealed class PipelineTranslationWorkflow : ICliWorkflow, ICliTaskWorkflow
     private readonly Func<string, IReadOnlyList<string>, string, CancellationToken, Task<int>> _mediaProcessRunner;
     private readonly CliTaskStore _taskStore;
     private readonly CliPipelineExecutor _taskPipelineExecutor;
+    private readonly VideoPlaybackService _videoPlayback;
 
     public PipelineTranslationWorkflow(
         Func<string, CancellationToken, Task<string?>>? mediaValidator = null,
@@ -23,7 +24,8 @@ public sealed class PipelineTranslationWorkflow : ICliWorkflow, ICliTaskWorkflow
         CliTaskStore? taskStore = null,
         Func<PipelineStepConfig, Dictionary<string, string>, TranslatorRuntimeConfig, Dictionary<string, string>>? pipelineStepRunner = null,
         TextWriter? progressOutput = null,
-        TimeSpan? progressHeartbeatInterval = null)
+        TimeSpan? progressHeartbeatInterval = null,
+        VideoPlaybackService? videoPlayback = null)
     {
         _mediaValidator = mediaValidator ?? ValidateMediaAsync;
         _hasInjectedPipelineRunner = pipelineRunner is not null;
@@ -31,6 +33,7 @@ public sealed class PipelineTranslationWorkflow : ICliWorkflow, ICliTaskWorkflow
         _mediaProcessRunner = mediaProcessRunner ?? RunMediaProcessAsync;
         _taskStore = taskStore ?? new CliTaskStore();
         _taskPipelineExecutor = new CliPipelineExecutor(_taskStore, pipelineStepRunner, progressOutput, progressHeartbeatInterval);
+        _videoPlayback = videoPlayback ?? new VideoPlaybackService();
     }
 
     public Task<TranslationResult> TranslateAsync(TranslationRequest request, CancellationToken cancellationToken = default) =>
@@ -49,6 +52,33 @@ public sealed class PipelineTranslationWorkflow : ICliWorkflow, ICliTaskWorkflow
         if (task.Status is not (CliTaskStatus.Interrupted or CliTaskStatus.Failed))
             throw new InvalidOperationException("只有失败或中断的任务可以恢复。");
         return ExecuteTaskAsync(task, cancellationToken);
+    }
+
+    public Task<VideoPlaybackResult> PlayTaskAsync(string taskId, CancellationToken cancellationToken = default)
+    {
+        cancellationToken.ThrowIfCancellationRequested();
+        var task = _taskStore.Get(taskId) ?? throw new InvalidOperationException("找不到该任务。请运行 zimu history 查看任务 ID。");
+        if (task.Status != CliTaskStatus.Completed)
+            throw new InvalidOperationException("该任务尚未完成，暂时无法播放。请运行 zimu history 查看任务状态。");
+        if (string.IsNullOrWhiteSpace(task.SubtitlePath) || !File.Exists(task.SubtitlePath))
+            throw new InvalidOperationException("任务的中文字幕文件不存在。请先恢复任务，或重新运行 translate。");
+
+        string videoPath;
+        if (task.IsLocalFile)
+        {
+            videoPath = task.Input;
+        }
+        else if (string.IsNullOrWhiteSpace(task.WorkspacePath) ||
+                 !task.Context.TryGetValue("VideoExt", out var extension) || string.IsNullOrWhiteSpace(extension))
+        {
+            throw new InvalidOperationException("任务的视频文件信息不完整。请检查任务目录后重试。");
+        }
+        else
+        {
+            videoPath = new WorkDirs(task.WorkspacePath, extension).VideoPath;
+        }
+
+        return Task.FromResult(_videoPlayback.Play(videoPath, task.SubtitlePath));
     }
 
     private async Task<TranslationResult> ExecuteTaskAsync(CliTaskRecord task, CancellationToken cancellationToken, string? inputOverride = null)

@@ -13,7 +13,8 @@ public static class CliApplication
         TextWriter standardError,
         bool isInteractive,
         string currentDirectory,
-        CancellationToken cancellationToken = default)
+        CancellationToken cancellationToken = default,
+        TextReader? standardInput = null)
     {
         if (args.Length == 0)
         {
@@ -76,6 +77,47 @@ public static class CliApplication
             catch (Exception)
             {
                 standardError.WriteLine("任务恢复失败。请运行 zimu history 查看任务状态和阶段。");
+                return TranslationError;
+            }
+        }
+
+        if (string.Equals(args[0], "play", StringComparison.OrdinalIgnoreCase))
+        {
+            if (args.Length == 2 && IsHelp(args[1]))
+            {
+                WritePlayHelp(standardOutput);
+                return Success;
+            }
+            if (workflow is not ICliPlaybackWorkflow playbackWorkflow || args.Length != 2 || !CliTaskStore.IsValidId(args[1]))
+            {
+                standardError.WriteLine("用法：zimu play <任务ID>。请运行 zimu history 查看任务 ID。");
+                return UsageError;
+            }
+
+            try
+            {
+                var playback = await playbackWorkflow.PlayTaskAsync(args[1], cancellationToken);
+                WritePlaybackResult(playback, standardOutput);
+                return Success;
+            }
+            catch (OperationCanceledException)
+            {
+                standardError.WriteLine("播放已取消。");
+                return TranslationError;
+            }
+            catch (InvalidOperationException exception)
+            {
+                standardError.WriteLine(exception.Message);
+                return TranslationError;
+            }
+            catch (VideoPlaybackException exception)
+            {
+                standardError.WriteLine(exception.Message);
+                return TranslationError;
+            }
+            catch (Exception)
+            {
+                standardError.WriteLine("无法启动播放器。请确认视频和字幕文件仍存在，并检查系统默认播放器设置后重试。");
                 return TranslationError;
             }
         }
@@ -175,6 +217,35 @@ public static class CliApplication
                 standardOutput.WriteLine($"双语字幕已生成：{Path.GetFullPath(result.BilingualSubtitlePath)}");
             if (!string.IsNullOrWhiteSpace(result.BurnedVideoPath))
                 standardOutput.WriteLine($"字幕烧录视频已生成：{Path.GetFullPath(result.BurnedVideoPath)}");
+
+            if (isInteractive && !string.IsNullOrWhiteSpace(result.TaskId) && workflow is ICliPlaybackWorkflow completedPlaybackWorkflow)
+            {
+                standardOutput.Write("现在播放视频并加载中文字幕？[y/N] ");
+                var choice = await (standardInput ?? Console.In).ReadLineAsync(cancellationToken);
+                if (string.Equals(choice?.Trim(), "y", StringComparison.OrdinalIgnoreCase))
+                {
+                    try
+                    {
+                        var playback = await completedPlaybackWorkflow.PlayTaskAsync(result.TaskId, cancellationToken);
+                        WritePlaybackResult(playback, standardOutput);
+                    }
+                    catch (InvalidOperationException exception)
+                    {
+                        standardError.WriteLine(exception.Message);
+                        return TranslationError;
+                    }
+                    catch (VideoPlaybackException exception)
+                    {
+                        standardError.WriteLine(exception.Message);
+                        return TranslationError;
+                    }
+                    catch (Exception)
+                    {
+                        standardError.WriteLine("无法启动播放器。请确认视频和字幕文件仍存在，并检查系统默认播放器设置后重试。");
+                        return TranslationError;
+                    }
+                }
+            }
             return Success;
         }
         catch (OperationCanceledException)
@@ -369,5 +440,25 @@ public static class CliApplication
         writer.WriteLine("示例：zimu translate ./lesson.mp4");
         writer.WriteLine("默认英文翻译为中文，字幕以 SRT 文件交付，不烧录到视频。");
         writer.WriteLine("可选：--bilingual 生成英中双语 SRT；--burn 生成烧录字幕的视频。");
+    }
+
+    private static void WritePlayHelp(TextWriter writer)
+    {
+        writer.WriteLine("用法：zimu play <任务ID>");
+        writer.WriteLine("示例：zimu play a1b2c3d4");
+        writer.WriteLine("播放已完成的任务并加载中文字幕；运行 zimu history 查看任务 ID。");
+    }
+
+    private static void WritePlaybackResult(VideoPlaybackResult playback, TextWriter writer)
+    {
+        if (playback.UsedCompatiblePlayer)
+        {
+            writer.WriteLine("已使用兼容播放器加载中文字幕。");
+        }
+        else
+        {
+            writer.WriteLine("已打开系统默认播放器；如果字幕未自动显示，请在播放器中手动加载：");
+            writer.WriteLine(Path.GetFullPath(playback.SubtitlePath));
+        }
     }
 }
