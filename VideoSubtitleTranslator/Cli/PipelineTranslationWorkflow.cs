@@ -21,14 +21,16 @@ public sealed class PipelineTranslationWorkflow : ICliWorkflow, ICliTaskWorkflow
         Func<PipelineConfig, Dictionary<string, string>, TranslatorRuntimeConfig, Dictionary<string, string>>? pipelineRunner = null,
         Func<string, IReadOnlyList<string>, string, CancellationToken, Task<int>>? mediaProcessRunner = null,
         CliTaskStore? taskStore = null,
-        Func<PipelineStepConfig, Dictionary<string, string>, TranslatorRuntimeConfig, Dictionary<string, string>>? pipelineStepRunner = null)
+        Func<PipelineStepConfig, Dictionary<string, string>, TranslatorRuntimeConfig, Dictionary<string, string>>? pipelineStepRunner = null,
+        TextWriter? progressOutput = null,
+        TimeSpan? progressHeartbeatInterval = null)
     {
         _mediaValidator = mediaValidator ?? ValidateMediaAsync;
         _hasInjectedPipelineRunner = pipelineRunner is not null;
         _pipelineRunner = pipelineRunner ?? ((config, context, runtime) => new PipelineRunner(new PipelineRegistry()).Run(config, context, runtime));
         _mediaProcessRunner = mediaProcessRunner ?? RunMediaProcessAsync;
         _taskStore = taskStore ?? new CliTaskStore();
-        _taskPipelineExecutor = new CliPipelineExecutor(_taskStore, pipelineStepRunner);
+        _taskPipelineExecutor = new CliPipelineExecutor(_taskStore, pipelineStepRunner, progressOutput, progressHeartbeatInterval);
     }
 
     public Task<TranslationResult> TranslateAsync(TranslationRequest request, CancellationToken cancellationToken = default) =>

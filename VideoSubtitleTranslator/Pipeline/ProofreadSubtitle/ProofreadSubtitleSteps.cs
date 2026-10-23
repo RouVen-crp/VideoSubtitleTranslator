@@ -229,6 +229,8 @@ public sealed class DeepSeekProofreadSubtitleStep : ProofreadSubtitleStepBase
         var source = ParseSrt(dirs.TranslatedSubtitlePath);
         if (source.Count == 0)
             throw new InvalidOperationException("翻译字幕为空，无法进行后处理校对。");
+        var totalPairs = Math.Max(0, source.Count - 1);
+        Console.Error.WriteLine($"[progress] 自动校对开始：{source.Count} 条字幕，最多检查 {totalPairs} 组相邻字幕");
 
         var maxAttempts = Math.Max(1, cfg.ProofreadJsonMaxAttempts);
         var delayMs = Math.Max(0, cfg.ProofreadRequestDelayMs > 0 ? cfg.ProofreadRequestDelayMs : cfg.RequestDelayMs);
@@ -251,6 +253,7 @@ public sealed class DeepSeekProofreadSubtitleStep : ProofreadSubtitleStepBase
                 output.Add(left);
                 left = right;
                 nextIndex += 1;
+                ReportPairProgress(nextIndex - 1, totalPairs);
                 continue;
             }
 
@@ -323,6 +326,8 @@ public sealed class DeepSeekProofreadSubtitleStep : ProofreadSubtitleStepBase
                 nextIndex += 1;
             }
 
+            ReportPairProgress(nextIndex - 1, totalPairs);
+
         }
 
         output.Add(left);
@@ -330,6 +335,12 @@ public sealed class DeepSeekProofreadSubtitleStep : ProofreadSubtitleStepBase
             $"[end] inputBlocks={source.Count}, outputBlocks={output.Count}, modelInvocations={invokedCount}, mergedPairs={mergeCount}, rejectedMerges={rejectCount}, ts={DateTime.UtcNow:O}");
         WriteSrt(dirs.ProofreadSubtitlePath, output);
         WriteSrt(dirs.TranslatedSubtitlePath, output);
+    }
+
+    private static void ReportPairProgress(int completedPairs, int totalPairs)
+    {
+        if (completedPairs > 0 && (completedPairs % 10 == 0 || completedPairs == totalPairs))
+            Console.Error.WriteLine($"[progress] 自动校对已检查 {completedPairs}/{totalPairs} 组相邻字幕");
     }
 
     public override Dictionary<string, string> Execute(Dictionary<string, string> context)

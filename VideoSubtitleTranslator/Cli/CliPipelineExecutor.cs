@@ -6,12 +6,16 @@ public sealed class CliPipelineExecutor
 {
     private readonly CliTaskStore _store;
     private readonly Func<PipelineStepConfig, Dictionary<string, string>, TranslatorRuntimeConfig, Dictionary<string, string>> _runStep;
+    private readonly CliStageProgressReporter _progress;
 
     public CliPipelineExecutor(
         CliTaskStore store,
-        Func<PipelineStepConfig, Dictionary<string, string>, TranslatorRuntimeConfig, Dictionary<string, string>>? runStep = null)
+        Func<PipelineStepConfig, Dictionary<string, string>, TranslatorRuntimeConfig, Dictionary<string, string>>? runStep = null,
+        TextWriter? progressOutput = null,
+        TimeSpan? progressHeartbeatInterval = null)
     {
         _store = store;
+        _progress = new CliStageProgressReporter(progressOutput, progressHeartbeatInterval);
         var runner = new PipelineRunner(new PipelineRegistry());
         _runStep = runStep ?? ((step, context, runtime) =>
         {
@@ -49,7 +53,12 @@ public sealed class CliPipelineExecutor
             if (artifact is null && stageWasCompleted && !invalidateFromHere) continue;
 
             _store.Save(task);
-            context = _runStep(step, context, runtime);
+            var previousContext = context;
+            _progress.Run(step.Step, () =>
+            {
+                GlobalRuntimeConfig.Current = runtime;
+                context = _runStep(step, previousContext, runtime);
+            });
             task.Context = new Dictionary<string, string>(context, StringComparer.OrdinalIgnoreCase);
             if (task.Context.TryGetValue("Url", out var savedUrl)) task.Context["Url"] = CliInputSanitizer.Sanitize(savedUrl);
             task.CompletedStages.RemoveAll(name => config.Steps.Skip(index).Any(later =>

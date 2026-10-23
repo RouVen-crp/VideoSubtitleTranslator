@@ -2,6 +2,7 @@ using System;
 using System.Collections.Generic;
 using System.Diagnostics;
 using System.IO;
+using System.Text;
 
 namespace VideoSubtitleTranslator.Pipeline;
 
@@ -88,7 +89,9 @@ public sealed class DefaultExtractSubtitleStep : ExtractSubtitleStepBase
                 UseShellExecute = false,
                 RedirectStandardOutput = true,
                 RedirectStandardError = true,
-                CreateNoWindow = true
+                CreateNoWindow = true,
+                StandardOutputEncoding = Encoding.UTF8,
+                StandardErrorEncoding = Encoding.UTF8
             }
         };
         process.StartInfo.ArgumentList.Add(Path.Combine(PythonScriptsDir, "subtitler.py"));
@@ -110,13 +113,25 @@ public sealed class DefaultExtractSubtitleStep : ExtractSubtitleStepBase
         if (whisperConfig.UseGpu) process.StartInfo.ArgumentList.Add("--whisper-use-gpu");
 
         if (!process.Start()) throw new InvalidOperationException("无法启动 Python Whisper 转录进程。");
-        var outputTask = process.StandardOutput.ReadToEndAsync();
-        var errorTask = process.StandardError.ReadToEndAsync();
+        var output = new StringBuilder();
+        var outputLock = new object();
+        DataReceivedEventHandler forwardLine = (_, eventArgs) =>
+        {
+            if (eventArgs.Data is null) return;
+            lock (outputLock) output.AppendLine(eventArgs.Data);
+            Console.Error.WriteLine(eventArgs.Data);
+        };
+        process.OutputDataReceived += forwardLine;
+        process.ErrorDataReceived += forwardLine;
+        process.BeginOutputReadLine();
+        process.BeginErrorReadLine();
         process.WaitForExit();
-        Task.WaitAll(outputTask, errorTask);
+        // Wait again so asynchronous output/error data handlers have drained before reading their buffer.
+        process.WaitForExit();
         if (process.ExitCode != 0)
         {
-            var details = string.Join(Environment.NewLine, new[] { outputTask.Result, errorTask.Result }.Where(text => !string.IsNullOrWhiteSpace(text))).Trim();
+            string details;
+            lock (outputLock) details = output.ToString().Trim();
             if (details.Length > 2000) details = details[^2000..];
             throw new InvalidOperationException($"Whisper 字幕提取失败（Python exit code {process.ExitCode}）：{details}");
         }
@@ -132,4 +147,3 @@ public sealed class DefaultExtractSubtitleStep : ExtractSubtitleStepBase
         return context;
     }
 }
-

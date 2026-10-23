@@ -1,6 +1,8 @@
 import argparse
 import os
 import subprocess
+import sys
+import time
 from pathlib import Path
 import srt
 from datetime import timedelta
@@ -101,17 +103,21 @@ def transcribe_to_sentence_level_srt(
         print(f"输出文件已存在且较新，直接跳过：{output_srt}")
         return
 
-    print(f"加载模型：{model_name} ...")
+    model_started_at = time.monotonic()
+    print(f"[zimu-progress] Whisper 模型加载中：{model_name}", file=sys.stderr, flush=True)
     subtitles = []
     if openai_whisper is not None:
         try:
             model = openai_whisper.load_model(model_name, download_root=str(WHISPER_MODEL_DIR))
-            print(f"开始转录音频：{audio_path}")
+            model_elapsed = time.monotonic() - model_started_at
+            print(f"[zimu-progress] Whisper 模型加载完成；已用时 {model_elapsed:.0f} 秒", file=sys.stderr, flush=True)
+            transcription_started_at = time.monotonic()
+            print("[zimu-progress] 英语音频转录中", file=sys.stderr, flush=True)
             result = model.transcribe(
                 audio_path,
                 language=language if language else None,
                 fp16=False,
-                verbose=True,
+                verbose=False,
                 word_timestamps=False
             )
             segments = result["segments"]
@@ -122,12 +128,14 @@ def transcribe_to_sentence_level_srt(
                 start = timedelta(seconds=round(segment["start"], 3))
                 end = timedelta(seconds=round(segment["end"], 3))
                 subtitles.append(srt.Subtitle(index=len(subtitles) + 1, start=start, end=end, content=text))
+            transcription_elapsed = time.monotonic() - transcription_started_at
+            print(f"[zimu-progress] 英语音频转录完成；生成 {len(subtitles)} 条字幕，已用时 {transcription_elapsed:.0f} 秒", file=sys.stderr, flush=True)
         except Exception as exc:
             print(f"openai-whisper 不可用，将尝试 FFmpeg whisper.cpp：{exc}", file=os.sys.stderr)
             subtitles.clear()
 
     if not subtitles and whisper_model_path:
-        print(f"openai-whisper 不可用，使用 FFmpeg whisper.cpp：{audio_path}")
+        print("[zimu-progress] 改用 FFmpeg whisper.cpp 转录英语音频", file=sys.stderr, flush=True)
         _transcribe_with_ffmpeg(audio_path, output_srt, language, ffmpeg_path, whisper_model_path, whisper_use_gpu)
         return
 

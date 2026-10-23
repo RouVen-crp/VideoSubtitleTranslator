@@ -610,8 +610,8 @@ public class DeepSeekTranslateStep : TranslateStepBase
         {
             while (!heartbeatCts.IsCancellationRequested)
             {
-                Console.WriteLine(
-                    $"[heartbeat] elapsed={startedAt.Elapsed:hh\\:mm\\:ss} module={progress.CurrentModule + 1}/{progress.TotalModules} completed={progress.CompletedModules} attempt={progress.CurrentAttempt}/{progress.MaxAttempts} stage={progress.Stage}");
+                Console.Error.WriteLine(
+                    $"[progress] 翻译仍在运行：模块 {progress.CompletedModules}/{progress.TotalModules}，已用时 {startedAt.Elapsed:hh\\:mm\\:ss}");
                 try
                 {
                     await Task.Delay(TimeSpan.FromSeconds(15), heartbeatCts.Token);
@@ -630,7 +630,6 @@ public class DeepSeekTranslateStep : TranslateStepBase
                 progress.CurrentModule = moduleIndex;
                 progress.CurrentAttempt = 0;
                 progress.Stage = "module-start";
-                Console.WriteLine($"[progress] start module={moduleIndex + 1}/{modules.Count}");
                 adSummaries = File.Exists(dirs.AdMemoryPath) ? File.ReadAllText(dirs.AdMemoryPath).Trim() : adSummaries;
                 var expected = modules[moduleIndex].Sentences.Count;
                 ModuleTranslationResponse? parsed = null;
@@ -721,8 +720,9 @@ public class DeepSeekTranslateStep : TranslateStepBase
                 }));
                 progress.CompletedModules++;
                 progress.Stage = "module-complete";
-                Console.WriteLine(
-                    $"[progress] done module={moduleIndex + 1}/{modules.Count} completed={progress.CompletedModules} elapsed={startedAt.Elapsed:hh\\:mm\\:ss}");
+                if (progress.CompletedModules % 5 == 0 || progress.CompletedModules == progress.TotalModules)
+                    Console.Error.WriteLine(
+                        $"[progress] 翻译模块已完成 {progress.CompletedModules}/{progress.TotalModules}，已用时 {startedAt.Elapsed:hh\\:mm\\:ss}");
                 Thread.Sleep(Math.Max(0, translationConfig.RequestDelayMs));
             }
         }
