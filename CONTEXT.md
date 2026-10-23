@@ -45,3 +45,13 @@ _Avoid_: Rendered export, generated video
 **Interactive SRT**:
 The SRT generated in the visitor's browser from their Pages Demo subtitle edits.
 _Avoid_: Exported video, AI translation
+
+## Delivery checks
+
+**CI Check**:
+An automatic GitHub Actions run that builds the solution and passes the full xUnit suite for a code change.
+_Avoid_: Pages deployment, manual regression
+
+**Automated Regression Suite**:
+The complete xUnit test suite that checks existing application behavior on each CI Check.
+_Avoid_: Smoke test, end-to-end media test

@@ -1,0 +1,35 @@
+name: Code CI
+
+on:
+  pull_request:
+  push:
+    branches: [master]
+
+permissions:
+  contents: read
+
+concurrency:
+  group: code-ci-${{ github.workflow }}-${{ github.event.pull_request.number || github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  build-and-test:
+    name: Build and test (.NET 10)
+    runs-on: ubuntu-latest
+    steps:
+      - name: Check out source
+        uses: actions/checkout@v4
+
+      - name: Set up .NET 10
+        uses: actions/setup-dotnet@v4
+        with:
+          dotnet-version: 10.0.x
+
+      - name: Restore solution
+        run: dotnet restore VideoSubtitleTranslator.sln
+
+      - name: Build solution
+        run: dotnet build VideoSubtitleTranslator.sln --configuration Release --no-restore
+
+      - name: Run full xUnit suite
+        run: dotnet test VideoSubtitleTranslator.Tests/VideoSubtitleTranslator.Tests.csproj --configuration Release --no-build --no-restore
