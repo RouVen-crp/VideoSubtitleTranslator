@@ -108,9 +108,27 @@ public static class CliApplication
                 return TranslationError;
             }
 
+            if (request!.CreateBilingualSubtitle &&
+                (string.IsNullOrWhiteSpace(result.BilingualSubtitlePath) || !File.Exists(result.BilingualSubtitlePath)))
+            {
+                standardError.WriteLine("未能生成可用的双语字幕文件。");
+                return TranslationError;
+            }
+
+            if (request.BurnSubtitles &&
+                (string.IsNullOrWhiteSpace(result.BurnedVideoPath) || !File.Exists(result.BurnedVideoPath)))
+            {
+                standardError.WriteLine("未能生成可用的字幕烧录视频。");
+                return TranslationError;
+            }
+
             standardOutput.WriteLine($"中文字幕已生成：{Path.GetFullPath(result.SubtitlePath)}");
             if (!string.IsNullOrWhiteSpace(result.SidecarSubtitlePath))
                 standardOutput.WriteLine($"源视频旁的字幕：{Path.GetFullPath(result.SidecarSubtitlePath)}");
+            if (!string.IsNullOrWhiteSpace(result.BilingualSubtitlePath))
+                standardOutput.WriteLine($"双语字幕已生成：{Path.GetFullPath(result.BilingualSubtitlePath)}");
+            if (!string.IsNullOrWhiteSpace(result.BurnedVideoPath))
+                standardOutput.WriteLine($"字幕烧录视频已生成：{Path.GetFullPath(result.BurnedVideoPath)}");
             return Success;
         }
         catch (OperationCanceledException)
@@ -169,6 +187,8 @@ public static class CliApplication
         var positional = new List<string>();
         var mode = "standard";
         string? workspaceRoot = null;
+        var bilingual = false;
+        var burn = false;
 
         for (var i = 0; i < args.Length; i++)
         {
@@ -199,6 +219,24 @@ public static class CliApplication
                     workspaceRoot = Path.GetFullPath(args[++i], currentDirectory);
                     break;
 
+                case "--bilingual":
+                    if (bilingual)
+                    {
+                        error = "--bilingual 只能指定一次。";
+                        return false;
+                    }
+                    bilingual = true;
+                    break;
+
+                case "--burn":
+                    if (burn)
+                    {
+                        error = "--burn 只能指定一次。";
+                        return false;
+                    }
+                    burn = true;
+                    break;
+
                 default:
                     if (args[i].StartsWith("-", StringComparison.Ordinal))
                     {
@@ -220,7 +258,7 @@ public static class CliApplication
             uri.Scheme is "http" or "https")
         {
             workspaceRoot ??= Program.ResolveDefaultWorkspace(currentDirectory);
-            request = new TranslationRequest(uri.AbsoluteUri, mode, workspaceRoot);
+            request = new TranslationRequest(uri.AbsoluteUri, mode, workspaceRoot, CreateBilingualSubtitle: bilingual, BurnSubtitles: burn);
             return true;
         }
 
@@ -239,7 +277,9 @@ public static class CliApplication
         }
 
         workspaceRoot ??= Program.ResolveDefaultWorkspace(currentDirectory);
-        request = new TranslationRequest(localPath, mode, workspaceRoot, IsLocalFile: true);
+        request = new TranslationRequest(
+            localPath, mode, workspaceRoot, IsLocalFile: true,
+            CreateBilingualSubtitle: bilingual, BurnSubtitles: burn);
         return true;
     }
 
@@ -250,7 +290,7 @@ public static class CliApplication
         writer.WriteLine("zimu - 轻量视频字幕翻译工具");
         writer.WriteLine();
         writer.WriteLine("用法：");
-        writer.WriteLine("  zimu translate <URL|视频路径> [--mode standard|meme] [--workspace <目录>]");
+        writer.WriteLine("  zimu translate <URL|视频路径> [--mode standard|meme] [--bilingual] [--burn] [--workspace <目录>]");
         writer.WriteLine("  zimu download <URL>");
         writer.WriteLine("  zimu --help");
         writer.WriteLine();
@@ -270,9 +310,10 @@ public static class CliApplication
 
     private static void WriteTranslateHelp(TextWriter writer)
     {
-        writer.WriteLine("用法：zimu translate <URL|视频路径> [--mode standard|meme] [--workspace <目录>]");
+        writer.WriteLine("用法：zimu translate <URL|视频路径> [--mode standard|meme] [--bilingual] [--burn] [--workspace <目录>]");
         writer.WriteLine("示例：zimu translate https://example.com/video");
         writer.WriteLine("示例：zimu translate ./lesson.mp4");
         writer.WriteLine("默认英文翻译为中文，字幕以 SRT 文件交付，不烧录到视频。");
+        writer.WriteLine("可选：--bilingual 生成英中双语 SRT；--burn 生成烧录字幕的视频。");
     }
 }

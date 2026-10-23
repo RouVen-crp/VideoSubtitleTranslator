@@ -23,10 +23,51 @@ public sealed class CliCommandTests
         Assert.Equal("standard", workflow.Request?.Mode);
         Assert.Equal("https://example.com/video", workflow.Request?.Input);
         Assert.False(workflow.Request?.IsLocalFile);
+        Assert.False(workflow.Request?.CreateBilingualSubtitle);
+        Assert.False(workflow.Request?.BurnSubtitles);
         Assert.Equal(Path.Combine(temp.Path, "VideoSubtitleTranslator", "output"), workflow.Request?.WorkspaceRoot);
         Assert.Contains(subtitlePath, output.ToString());
         Assert.Empty(error.ToString());
         Assert.Equal("1\n00:00:00,000 --> 00:00:01,000\n你好\n", await File.ReadAllTextAsync(subtitlePath));
+    }
+
+    [Fact]
+    public async Task Translate_accepts_explicit_bilingual_and_burn_options_and_reports_both_artifacts()
+    {
+        using var temp = new TemporaryDirectory();
+        var subtitlePath = Path.Combine(temp.Path, "translated_subtitle.srt");
+        var workflow = new RecordingTranslationWorkflow(subtitlePath);
+        using var output = new StringWriter();
+        using var error = new StringWriter();
+
+        var exitCode = await CliApplication.RunAsync(
+            ["translate", "https://example.com/video", "--bilingual", "--burn"], workflow, output, error,
+            isInteractive: false, currentDirectory: temp.Path);
+
+        Assert.Equal(0, exitCode);
+        Assert.True(workflow.Request?.CreateBilingualSubtitle);
+        Assert.True(workflow.Request?.BurnSubtitles);
+        Assert.Contains(Path.GetFullPath(workflow.Result!.BilingualSubtitlePath!), output.ToString());
+        Assert.Contains(Path.GetFullPath(workflow.Result.BurnedVideoPath!), output.ToString());
+        Assert.Empty(error.ToString());
+    }
+
+    [Theory]
+    [InlineData("--bilingual")]
+    [InlineData("--burn")]
+    public async Task Translate_rejects_duplicate_output_options(string option)
+    {
+        using var temp = new TemporaryDirectory();
+        var workflow = new RecordingTranslationWorkflow(Path.Combine(temp.Path, "unused.srt"));
+        using var output = new StringWriter();
+        using var error = new StringWriter();
+
+        var exitCode = await CliApplication.RunAsync(
+            ["translate", "https://example.com/video", option, option], workflow, output, error, false, temp.Path);
+
+        Assert.Equal(2, exitCode);
+        Assert.Contains("只能指定一次", error.ToString());
+        Assert.Null(workflow.Request);
     }
 
     [Fact]
@@ -204,6 +245,7 @@ public sealed class CliCommandTests
                 Assert.EndsWith("lesson_2", context["WorkspacePath"]);
                 Assert.True(File.Exists(Path.Combine(context["WorkspacePath"], "video.mp4")));
                 var dirs = new WorkDirs(context["WorkspacePath"], ".mp4");
+                File.WriteAllText(dirs.NormalizedSubtitlePath, "1\n00:00:00,000 --> 00:00:01,000\nHello\n\n");
                 File.WriteAllText(dirs.TranslatedSubtitlePath, "translated");
                 return context;
             });
@@ -386,7 +428,11 @@ public sealed class CliCommandTests
             if (Failure is not null) throw Failure;
             Directory.CreateDirectory(Path.GetDirectoryName(subtitlePath)!);
             File.WriteAllText(subtitlePath, "1\n00:00:00,000 --> 00:00:01,000\n你好\n", Encoding.UTF8);
-            Result = new TranslationResult(subtitlePath, SidecarSubtitlePath);
+            var bilingualPath = request.CreateBilingualSubtitle ? Path.Combine(Path.GetDirectoryName(subtitlePath)!, "dual.srt") : null;
+            var burnedVideoPath = request.BurnSubtitles ? Path.Combine(Path.GetDirectoryName(subtitlePath)!, "burned.mp4") : null;
+            if (bilingualPath is not null) File.WriteAllText(bilingualPath, "bilingual");
+            if (burnedVideoPath is not null) File.WriteAllText(burnedVideoPath, "video");
+            Result = new TranslationResult(subtitlePath, SidecarSubtitlePath, bilingualPath, burnedVideoPath);
             return Task.FromResult(Result);
         }
 

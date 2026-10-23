@@ -3,6 +3,7 @@ using System.Diagnostics;
 using System.Text.Json;
 using System.ComponentModel;
 using System.Text;
+using System.Runtime.InteropServices;
 
 namespace VideoSubtitleTranslator.Cli;
 
@@ -10,22 +11,25 @@ public sealed class PipelineTranslationWorkflow : ICliWorkflow
 {
     private readonly Func<string, CancellationToken, Task<string?>> _mediaValidator;
     private readonly Func<PipelineConfig, Dictionary<string, string>, TranslatorRuntimeConfig, Dictionary<string, string>> _pipelineRunner;
+    private readonly Func<string, IReadOnlyList<string>, string, CancellationToken, Task<int>> _mediaProcessRunner;
 
     public PipelineTranslationWorkflow(
         Func<string, CancellationToken, Task<string?>>? mediaValidator = null,
-        Func<PipelineConfig, Dictionary<string, string>, TranslatorRuntimeConfig, Dictionary<string, string>>? pipelineRunner = null)
+        Func<PipelineConfig, Dictionary<string, string>, TranslatorRuntimeConfig, Dictionary<string, string>>? pipelineRunner = null,
+        Func<string, IReadOnlyList<string>, string, CancellationToken, Task<int>>? mediaProcessRunner = null)
     {
         _mediaValidator = mediaValidator ?? ValidateMediaAsync;
         _pipelineRunner = pipelineRunner ?? ((config, context, runtime) => new PipelineRunner(new PipelineRegistry()).Run(config, context, runtime));
+        _mediaProcessRunner = mediaProcessRunner ?? RunMediaProcessAsync;
     }
 
-    public Task<TranslationResult> TranslateAsync(TranslationRequest request, CancellationToken cancellationToken = default)
+    public async Task<TranslationResult> TranslateAsync(TranslationRequest request, CancellationToken cancellationToken = default)
     {
         cancellationToken.ThrowIfCancellationRequested();
         Program.LoadEnv();
 
         if (request.IsLocalFile)
-            return TranslateLocalAsync(request, cancellationToken);
+            return await TranslateLocalAsync(request, cancellationToken);
 
         var (pipelinePath, translatorPath) = Program.ResolveConfigPaths(request.Mode, AppContext.BaseDirectory);
         var translatorConfig = LoadCliTranslatorConfig(translatorPath, request.Mode);
@@ -36,7 +40,8 @@ public sealed class PipelineTranslationWorkflow : ICliWorkflow
             ["WorkspaceRoot"] = request.WorkspaceRoot,
             ["ConfigPath"] = pipelinePath,
             ["TranslatorConfigPath"] = translatorPath,
-            ["Mode"] = request.Mode
+            ["Mode"] = request.Mode,
+            ["AvoidWorkspaceOverwrite"] = "true"
         };
 
         var pipelineOutput = Console.Out;
@@ -44,17 +49,12 @@ public sealed class PipelineTranslationWorkflow : ICliWorkflow
         {
             Console.SetOut(Console.Error);
             var pipelineConfig = PipelineRunner.LoadConfig(pipelinePath);
-            var runner = new PipelineRunner(new PipelineRegistry());
-            var context = runner.Run(pipelineConfig, initialContext, translatorConfig);
+            pipelineConfig.Steps = pipelineConfig.Steps
+                .Where(step => step.Step != "BurnSubtitle")
+                .ToList();
+            var context = _pipelineRunner(pipelineConfig, initialContext, translatorConfig);
             var dirs = new WorkDirs(context["WorkspacePath"], context["VideoExt"]);
-            var subtitlePath = File.Exists(dirs.ProofreadSubtitlePath)
-                ? dirs.ProofreadSubtitlePath
-                : dirs.TranslatedSubtitlePath;
-
-            if (!File.Exists(subtitlePath))
-                throw new InvalidOperationException("The translation pipeline produced no subtitle artifact.");
-
-            return Task.FromResult(new TranslationResult(subtitlePath));
+            return await CreateTranslationResultAsync(dirs, request, translatorConfig, cancellationToken);
         }
         finally
         {
@@ -165,16 +165,15 @@ public sealed class PipelineTranslationWorkflow : ICliWorkflow
             File.Copy(request.Input, dirs.VideoPath, overwrite: false);
 
             var config = PipelineRunner.LoadConfig(pipelinePath);
-            config.Steps = config.Steps.Where(step => step.Step is not ("InitMetadata" or "Download" or "BurnSubtitle")).ToList();
+            config.Steps = config.Steps
+                .Where(step => step.Step is not ("InitMetadata" or "Download" or "BurnSubtitle"))
+                .ToList();
             var context = _pipelineRunner(config, initialContext, translatorConfig);
             dirs = new WorkDirs(context["WorkspacePath"], context["VideoExt"]);
-            var subtitlePath = File.Exists(dirs.ProofreadSubtitlePath) ? dirs.ProofreadSubtitlePath : dirs.TranslatedSubtitlePath;
-            if (!File.Exists(subtitlePath))
-                throw new InvalidOperationException("The translation pipeline produced no subtitle artifact.");
-
+            var result = await CreateTranslationResultAsync(dirs, request, translatorConfig, cancellationToken);
             var sidecar = GetAvailableSidecarPath(request.Input);
-            File.Copy(subtitlePath, sidecar, overwrite: false);
-            return new TranslationResult(subtitlePath, sidecar);
+            File.Copy(result.SubtitlePath, sidecar, overwrite: false);
+            return result with { SidecarSubtitlePath = sidecar };
         }
         finally
         {
@@ -186,9 +185,119 @@ public sealed class PipelineTranslationWorkflow : ICliWorkflow
     {
         var config = TranslatorRuntimeConfig.Load(translatorPath);
         config.Mode = mode;
-        // Keep the CLI's fast SRT path independent of the legacy Web workbench defaults.
-        config.Burn.Enabled = false;
         return config;
+    }
+
+    private async Task<TranslationResult> CreateTranslationResultAsync(
+        WorkDirs dirs,
+        TranslationRequest request,
+        TranslatorRuntimeConfig config,
+        CancellationToken cancellationToken)
+    {
+        var subtitlePath = File.Exists(dirs.ProofreadSubtitlePath)
+            ? dirs.ProofreadSubtitlePath
+            : dirs.TranslatedSubtitlePath;
+        if (!File.Exists(subtitlePath))
+            throw new InvalidOperationException("The translation pipeline produced no subtitle artifact.");
+
+        var bilingualPath = request.CreateBilingualSubtitle
+            ? BilingualSubtitleBuilder.Create(dirs.NormalizedSubtitlePath, subtitlePath, dirs.CustomPath(""))
+            : null;
+        var burnSubtitlePath = File.Exists(dirs.DualSubtitlePath) ? dirs.DualSubtitlePath : subtitlePath;
+        var burnedPath = request.BurnSubtitles
+            ? await BurnVideoAsync(dirs.VideoPath, burnSubtitlePath, dirs.CustomPath(""), config, cancellationToken)
+            : null;
+
+        return new TranslationResult(subtitlePath, BilingualSubtitlePath: bilingualPath, BurnedVideoPath: burnedPath);
+    }
+
+    private async Task<string> BurnVideoAsync(
+        string videoPath,
+        string subtitlePath,
+        string workspacePath,
+        TranslatorRuntimeConfig config,
+        CancellationToken cancellationToken)
+    {
+        var outputPath = GetAvailableArtifactPath(workspacePath, "burned_video", ".mp4");
+        var safeDirectory = Path.Combine(Path.GetTempPath(), "zimu-burn", Guid.NewGuid().ToString("N"));
+        Directory.CreateDirectory(safeDirectory);
+        var safeSubtitlePath = Path.Combine(safeDirectory, "subtitle" + Path.GetExtension(subtitlePath));
+        File.Copy(subtitlePath, safeSubtitlePath);
+        try
+        {
+            var arguments = new List<string>
+            {
+                "-n", "-i", videoPath, "-vf", $"subtitles='{Path.GetFileName(safeSubtitlePath)}'"
+            };
+            var qualityPreset = string.IsNullOrWhiteSpace(config.Burn.QualityPreset) ? "auto" : config.Burn.QualityPreset.Trim();
+            if (string.Equals(qualityPreset, "high", StringComparison.OrdinalIgnoreCase))
+            {
+                var encoder = string.IsNullOrWhiteSpace(config.Burn.VideoEncoder) ||
+                              string.Equals(config.Burn.VideoEncoder, "auto", StringComparison.OrdinalIgnoreCase)
+                    ? RuntimeInformation.IsOSPlatform(OSPlatform.OSX) ? "h264_videotoolbox" : "libx264"
+                    : config.Burn.VideoEncoder;
+                arguments.AddRange(["-c:v", encoder]);
+            }
+            arguments.AddRange(["-c:a", "copy", outputPath]);
+
+            var exitCode = await _mediaProcessRunner(config.Tools.FfmpegPath, arguments, safeDirectory, cancellationToken);
+            if (exitCode != 0 || !File.Exists(outputPath))
+                throw new InvalidOperationException("ffmpeg 未能生成烧录视频。");
+            return outputPath;
+        }
+        finally
+        {
+            try { Directory.Delete(safeDirectory, recursive: true); } catch { }
+        }
+    }
+
+    private static string GetAvailableArtifactPath(string directory, string name, string extension)
+    {
+        Directory.CreateDirectory(directory);
+        var candidate = Path.Combine(directory, name + extension);
+        for (var suffix = 2; File.Exists(candidate); suffix++)
+            candidate = Path.Combine(directory, $"{name}.{suffix}{extension}");
+        return candidate;
+    }
+
+    private static async Task<int> RunMediaProcessAsync(
+        string executable,
+        IReadOnlyList<string> arguments,
+        string workingDirectory,
+        CancellationToken cancellationToken)
+    {
+        using var process = new Process();
+        process.StartInfo = new ProcessStartInfo
+        {
+            FileName = executable,
+            UseShellExecute = false,
+            RedirectStandardOutput = true,
+            RedirectStandardError = true,
+            CreateNoWindow = true,
+            WorkingDirectory = workingDirectory
+        };
+        foreach (var argument in arguments)
+            process.StartInfo.ArgumentList.Add(argument);
+
+        try
+        {
+            process.Start();
+            var standardOutput = process.StandardOutput.ReadToEndAsync();
+            var standardError = process.StandardError.ReadToEndAsync();
+            await process.WaitForExitAsync(cancellationToken);
+            await Task.WhenAll(standardOutput, standardError);
+            return process.ExitCode;
+        }
+        catch (OperationCanceledException)
+        {
+            process.Kill(entireProcessTree: true);
+            await process.WaitForExitAsync();
+            throw;
+        }
+        catch (Win32Exception)
+        {
+            throw new InvalidOperationException("找不到 ffmpeg。请安装 FFmpeg 后重试。");
+        }
     }
 
     private static string GetAvailableWorkspacePath(string workspaceRoot, string title)

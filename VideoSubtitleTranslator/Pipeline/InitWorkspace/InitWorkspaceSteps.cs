@@ -31,10 +31,16 @@ public sealed class DefaultInitWorkspaceStep : InitWorkspaceStepBase
         safeTitle = Regex.Replace(safeTitle, "\"", "");
         safeTitle = Regex.Replace(safeTitle, ",", "");
         safeTitle = Regex.Replace(safeTitle, "'", "");
-        var workspacePath = $"{root}/{safeTitle}";
+        var workspacePath = Path.Combine(root, safeTitle);
+        if (context.TryGetValue("AvoidWorkspaceOverwrite", out var avoidOverwrite) &&
+            string.Equals(avoidOverwrite, "true", StringComparison.OrdinalIgnoreCase))
+        {
+            var basePath = workspacePath;
+            for (var suffix = 2; Directory.Exists(workspacePath); suffix++)
+                workspacePath = $"{basePath}_{suffix}";
+        }
 
         context["WorkspacePath"] = workspacePath;
         return context;
     }
 }
-

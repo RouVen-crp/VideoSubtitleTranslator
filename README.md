@@ -105,31 +105,38 @@ docker compose up --build
 
 ## 命令行用法
 
-命令行从视频链接开始下载和处理。先按上面的步骤准备依赖和 `.env`，然后从仓库根目录运行：
+命令行可处理在线视频或本地视频。先按上面的步骤准备依赖和 `.env`，然后从仓库根目录运行：
 
 ```powershell
 # 通用翻译模式（默认）
-dotnet run --project VideoSubtitleTranslator -- "<视频链接>"
+dotnet run --project VideoSubtitleTranslator -- translate "<视频链接或本地视频路径>"
 
 # Meme 模式：口语化翻译并生成文化注释
-dotnet run --project VideoSubtitleTranslator -- "<视频链接>" --mode meme
+dotnet run --project VideoSubtitleTranslator -- translate "<视频链接或本地视频路径>" --mode meme
 
 # 指定输出根目录
-dotnet run --project VideoSubtitleTranslator -- "<视频链接>" "D:\VideoTranslations" --mode standard
+dotnet run --project VideoSubtitleTranslator -- translate "<视频链接或本地视频路径>" --workspace "D:\VideoTranslations"
+
+# 可选：生成双语 SRT 或烧录中文字幕视频
+dotnet run --project VideoSubtitleTranslator -- translate "<视频链接或本地视频路径>" --bilingual --burn
+
+# 单独下载在线视频
+dotnet run --project VideoSubtitleTranslator -- download "<视频链接>"
 ```
 
 macOS/Linux 命令相同，只需将 PowerShell 示例中的 Windows 输出路径换成 Unix 路径。
 
-完整参数格式：
+发布命令为 `zimu`，也可用短名 `zm`。完整参数格式：
 
 ```text
-VideoSubtitleTranslator <url> [workspace_dir] [--mode <standard|meme>] [pipeline_config_json_path] [translator_config_json_path]
+zimu translate <URL|视频路径> [--mode standard|meme] [--bilingual] [--burn] [--workspace <目录>]
 ```
 
-- `url`：必填，公开可访问的视频链接。
-- `workspace_dir`：可选，工作区根目录；省略时使用 `VideoSubtitleTranslator/output/`。
+- `URL|视频路径`：必填，HTTP(S) 视频链接或本地视频文件路径。
 - `--mode`：可选，`standard` 为默认模式，`meme` 启用口语化翻译和文化注释。
-- `pipeline_config_json_path`、`translator_config_json_path`：可选的自定义流水线和翻译配置路径。
+- `--bilingual`：可选，生成英中双语 SRT。
+- `--burn`：可选，生成烧录字幕的视频；默认只生成字幕文件。
+- `--workspace`：可选，工作区根目录；省略时使用 `VideoSubtitleTranslator/output/`。
 
 CLI 使用 `yt-dlp` 下载视频；如果网站要求登录，需按 yt-dlp 支持的方式配置 cookies。标准模式和 Meme 模式分别读取 `pipeline.config.json` / `Config/translator.config.json` 与 `pipeline_meme.config.json` / `Config/translator_meme.config.json`。
 
@@ -157,8 +164,9 @@ CLI 使用 `yt-dlp` 下载视频；如果网站要求登录，需按 yt-dlp 支�
 | `subtitle.normalized.srt` | 规范化后的原文字幕 |
 | `translated_subtitle.srt` | 中文字幕 |
 | `translated_subtitle.proofread.srt` | 校对后的中文字幕 |
+| `translated_bilingual.srt` | 使用 `--bilingual` 时生成的英中双语字幕 |
 | `dual_subtitle.ass` | Meme 模式的双轨字幕（译文与文化注释） |
-| `<中文标题>.mp4` | 开启烧录后生成的字幕视频 |
+| `burned_video.mp4` | 使用 `--burn` 时生成的烧录视频；若已存在则使用编号文件名 |
 | `info.txt`、`thumbnail.png` | 视频元信息和封面（视源视频而定） |
 
 ## GitHub Pages 静态演示
