@@ -348,7 +348,7 @@ public sealed class CliCommandTests
         using var error = new StringWriter();
 
         var args = string.IsNullOrEmpty(argument) ? [command] : new[] { command, argument };
-        var exitCode = await CliApplication.RunAsync(args, workflow, output, error, false, "/tmp");
+        var exitCode = await CliApplication.RunAsync(args, workflow, output, error, false, Path.GetTempPath());
 
         Assert.NotEqual(0, exitCode);
         Assert.NotEmpty(error.ToString());
