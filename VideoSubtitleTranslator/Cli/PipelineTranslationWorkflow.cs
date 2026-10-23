@@ -2,10 +2,11 @@ using VideoSubtitleTranslator.Pipeline;
 using System.Diagnostics;
 using System.Text.Json;
 using System.ComponentModel;
+using System.Text;
 
 namespace VideoSubtitleTranslator.Cli;
 
-public sealed class PipelineTranslationWorkflow : ITranslationWorkflow
+public sealed class PipelineTranslationWorkflow : ICliWorkflow
 {
     private readonly Func<string, CancellationToken, Task<string?>> _mediaValidator;
     private readonly Func<PipelineConfig, Dictionary<string, string>, TranslatorRuntimeConfig, Dictionary<string, string>> _pipelineRunner;
@@ -58,6 +59,74 @@ public sealed class PipelineTranslationWorkflow : ITranslationWorkflow
         finally
         {
             Console.SetOut(pipelineOutput);
+        }
+    }
+
+    public async Task<DownloadResult> DownloadAsync(DownloadRequest request, CancellationToken cancellationToken = default)
+    {
+        cancellationToken.ThrowIfCancellationRequested();
+        Program.LoadEnv();
+        var (_, translatorPath) = Program.ResolveConfigPaths("standard", AppContext.BaseDirectory);
+        var config = TranslatorRuntimeConfig.Load(translatorPath);
+        Directory.CreateDirectory(request.OutputDirectory);
+
+        using var process = new Process();
+        process.StartInfo = new ProcessStartInfo
+        {
+            FileName = config.Tools.YtDlpPath,
+            UseShellExecute = false,
+            RedirectStandardOutput = true,
+            RedirectStandardError = true,
+            CreateNoWindow = true,
+            StandardOutputEncoding = Encoding.UTF8
+        };
+        var arguments = new List<string>
+        {
+            "--ignore-config", "--no-playlist", "--no-warnings", "--js-runtimes", "node",
+            "--print", "after_move:filepath",
+            "--output", Path.Combine(request.OutputDirectory, "%(title)s.%(ext)s")
+        };
+        var cookiesFile = Environment.GetEnvironmentVariable("COOKIES_FILE");
+        if (!string.IsNullOrWhiteSpace(cookiesFile) && File.Exists(cookiesFile))
+        {
+            arguments.Add("--cookies");
+            arguments.Add(cookiesFile);
+        }
+        else if (!string.IsNullOrWhiteSpace(config.CookiesFromBrowser))
+        {
+            arguments.Add("--cookies-from-browser");
+            arguments.Add(config.CookiesFromBrowser);
+        }
+        arguments.Add(request.Url);
+
+        foreach (var argument in arguments)
+            process.StartInfo.ArgumentList.Add(argument);
+
+        try
+        {
+            process.Start();
+            var outputTask = process.StandardOutput.ReadToEndAsync();
+            _ = process.StandardError.ReadToEndAsync();
+            try
+            {
+                await process.WaitForExitAsync(cancellationToken);
+            }
+            catch (OperationCanceledException)
+            {
+                process.Kill(entireProcessTree: true);
+                await process.WaitForExitAsync();
+                throw;
+            }
+
+            var downloadedPath = (await outputTask).Split('\n', StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries).LastOrDefault();
+            if (process.ExitCode != 0 || string.IsNullOrWhiteSpace(downloadedPath) || !File.Exists(downloadedPath))
+                throw new VideoDownloadException("视频下载失败。请确认链接可访问，并检查 yt-dlp 和网络后重试。");
+
+            return new DownloadResult(downloadedPath);
+        }
+        catch (Win32Exception)
+        {
+            throw new VideoDownloadException("找不到 yt-dlp。请安装 yt-dlp 后重试。");
         }
     }
 

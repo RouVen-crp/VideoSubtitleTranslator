@@ -8,7 +8,7 @@ public static class CliApplication
 
     public static async Task<int> RunAsync(
         string[] args,
-        ITranslationWorkflow workflow,
+        ICliWorkflow workflow,
         TextWriter standardOutput,
         TextWriter standardError,
         bool isInteractive,
@@ -33,6 +33,50 @@ public static class CliApplication
         {
             WriteHelp(standardOutput);
             return Success;
+        }
+
+        if (string.Equals(args[0], "download", StringComparison.OrdinalIgnoreCase))
+        {
+            if (args.Length == 2 && IsHelp(args[1]))
+            {
+                WriteDownloadHelp(standardOutput);
+                return Success;
+            }
+
+            if (!TryParseDownload(args[1..], currentDirectory, out var downloadRequest, out var downloadError))
+            {
+                standardError.WriteLine(downloadError);
+                WriteDownloadHelp(standardError);
+                return UsageError;
+            }
+
+            try
+            {
+                var result = await workflow.DownloadAsync(downloadRequest!, cancellationToken);
+                if (string.IsNullOrWhiteSpace(result.VideoPath) || !File.Exists(result.VideoPath))
+                {
+                    standardError.WriteLine("下载未生成可用的视频文件。请检查链接和 yt-dlp 后重试。");
+                    return TranslationError;
+                }
+
+                standardOutput.WriteLine($"视频已下载：{Path.GetFullPath(result.VideoPath)}");
+                return Success;
+            }
+            catch (OperationCanceledException)
+            {
+                standardError.WriteLine("下载已取消。");
+                return TranslationError;
+            }
+            catch (VideoDownloadException exception)
+            {
+                standardError.WriteLine(exception.Message);
+                return TranslationError;
+            }
+            catch (Exception)
+            {
+                standardError.WriteLine("视频下载失败。请检查链接、yt-dlp 和网络后重试。");
+                return TranslationError;
+            }
         }
 
         if (!string.Equals(args[0], "translate", StringComparison.OrdinalIgnoreCase))
@@ -86,6 +130,32 @@ public static class CliApplication
             standardError.WriteLine("翻译失败。请检查视频链接、yt-dlp、ffmpeg、Python/Whisper、网络和配置后重试。");
             return TranslationError;
         }
+    }
+
+    private static bool TryParseDownload(
+        string[] args,
+        string currentDirectory,
+        out DownloadRequest? request,
+        out string error)
+    {
+        request = null;
+        error = string.Empty;
+        if (args.Length != 1)
+        {
+            error = "download 需要且只接受一个 HTTP 或 HTTPS 视频 URL。";
+            return false;
+        }
+
+        if (!Uri.TryCreate(args[0], UriKind.Absolute, out var uri) || uri.Scheme is not ("http" or "https"))
+        {
+            error = "请输入有效的 HTTP 或 HTTPS 视频 URL。";
+            return false;
+        }
+
+        request = new DownloadRequest(
+            uri.AbsoluteUri,
+            Program.ResolveDefaultWorkspace(currentDirectory));
+        return true;
     }
 
     private static bool TryParseTranslate(
@@ -181,12 +251,21 @@ public static class CliApplication
         writer.WriteLine();
         writer.WriteLine("用法：");
         writer.WriteLine("  zimu translate <URL|视频路径> [--mode standard|meme] [--workspace <目录>]");
+        writer.WriteLine("  zimu download <URL>");
         writer.WriteLine("  zimu --help");
         writer.WriteLine();
         writer.WriteLine("示例：");
         writer.WriteLine("  zimu translate https://example.com/video");
         writer.WriteLine("  zm translate https://example.com/video");
         writer.WriteLine("  zimu translate https://example.com/video --mode meme");
+        writer.WriteLine("  zimu download https://example.com/video");
+    }
+
+    private static void WriteDownloadHelp(TextWriter writer)
+    {
+        writer.WriteLine("用法：zimu download <URL>");
+        writer.WriteLine("示例：zimu download https://example.com/video");
+        writer.WriteLine("下载在线视频，不执行转录或翻译。视频保存在默认工作区目录。");
     }
 
     private static void WriteTranslateHelp(TextWriter writer)

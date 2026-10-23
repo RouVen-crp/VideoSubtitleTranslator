@@ -30,6 +30,82 @@ public sealed class CliCommandTests
     }
 
     [Fact]
+    public async Task Download_saves_video_and_reports_actual_path_without_translation()
+    {
+        using var temp = new TemporaryDirectory();
+        var workflow = new RecordingTranslationWorkflow(Path.Combine(temp.Path, "unused.srt"))
+        {
+            DownloadedPath = Path.Combine(temp.Path, "output", "actual-title.mp4")
+        };
+        using var output = new StringWriter();
+        using var error = new StringWriter();
+
+        var exitCode = await CliApplication.RunAsync(
+            ["download", "https://example.com/video"], workflow, output, error, false, temp.Path);
+
+        Assert.Equal(0, exitCode);
+        Assert.Equal("https://example.com/video", workflow.DownloadRequest?.Url);
+        Assert.Null(workflow.Request);
+        Assert.Equal(Path.Combine(temp.Path, "VideoSubtitleTranslator", "output"), workflow.DownloadRequest?.OutputDirectory);
+        Assert.Contains(Path.GetFullPath(workflow.DownloadedPath), output.ToString());
+        Assert.Empty(error.ToString());
+    }
+
+    [Theory]
+    [InlineData("ftp://example.com/video")]
+    [InlineData("not-a-url")]
+    public async Task Download_rejects_invalid_url_with_nonzero_exit(string url)
+    {
+        using var temp = new TemporaryDirectory();
+        var workflow = new RecordingTranslationWorkflow(Path.Combine(temp.Path, "unused.srt"));
+        using var output = new StringWriter();
+        using var error = new StringWriter();
+
+        var exitCode = await CliApplication.RunAsync(
+            ["download", url], workflow, output, error, false, temp.Path);
+
+        Assert.NotEqual(0, exitCode);
+        Assert.Contains("HTTP 或 HTTPS", error.ToString());
+        Assert.Null(workflow.DownloadRequest);
+    }
+
+    [Fact]
+    public async Task Download_help_is_available_without_running_workflow()
+    {
+        using var temp = new TemporaryDirectory();
+        var workflow = new RecordingTranslationWorkflow(Path.Combine(temp.Path, "unused.srt"));
+        using var output = new StringWriter();
+        using var error = new StringWriter();
+
+        var exitCode = await CliApplication.RunAsync(
+            ["download", "--help"], workflow, output, error, false, temp.Path);
+
+        Assert.Equal(0, exitCode);
+        Assert.Contains("zimu download <URL>", output.ToString());
+        Assert.Null(workflow.DownloadRequest);
+    }
+
+    [Fact]
+    public async Task Download_failure_returns_actionable_nonzero_result_without_stack_trace()
+    {
+        using var temp = new TemporaryDirectory();
+        var workflow = new RecordingTranslationWorkflow(Path.Combine(temp.Path, "unused.srt"))
+        {
+            DownloadFailure = new VideoDownloadException("视频下载失败。请确认链接可访问，并检查 yt-dlp 和网络后重试。")
+        };
+        using var output = new StringWriter();
+        using var error = new StringWriter();
+
+        var exitCode = await CliApplication.RunAsync(
+            ["download", "https://example.com/video"], workflow, output, error, false, temp.Path);
+
+        Assert.NotEqual(0, exitCode);
+        Assert.Contains("视频下载失败", error.ToString());
+        Assert.DoesNotContain("at VideoSubtitleTranslator", error.ToString());
+        Assert.Null(workflow.Request);
+    }
+
+    [Fact]
     public async Task Translate_accepts_a_local_video_and_reports_task_and_sidecar_subtitles()
     {
         using var temp = new TemporaryDirectory();
@@ -294,12 +370,15 @@ public sealed class CliCommandTests
         Assert.Empty(output.ToString());
     }
 
-    private sealed class RecordingTranslationWorkflow(string subtitlePath) : ITranslationWorkflow
+    private sealed class RecordingTranslationWorkflow(string subtitlePath) : ICliWorkflow
     {
         public TranslationRequest? Request { get; private set; }
         public Exception? Failure { get; init; }
         public string? SidecarSubtitlePath { get; init; }
         public TranslationResult? Result { get; private set; }
+        public string? DownloadedPath { get; init; }
+        public Exception? DownloadFailure { get; init; }
+        public DownloadRequest? DownloadRequest { get; private set; }
 
         public Task<TranslationResult> TranslateAsync(TranslationRequest request, CancellationToken cancellationToken = default)
         {
@@ -309,6 +388,15 @@ public sealed class CliCommandTests
             File.WriteAllText(subtitlePath, "1\n00:00:00,000 --> 00:00:01,000\n你好\n", Encoding.UTF8);
             Result = new TranslationResult(subtitlePath, SidecarSubtitlePath);
             return Task.FromResult(Result);
+        }
+
+        public Task<DownloadResult> DownloadAsync(DownloadRequest request, CancellationToken cancellationToken = default)
+        {
+            DownloadRequest = request;
+            if (DownloadFailure is not null) throw DownloadFailure;
+            Directory.CreateDirectory(Path.GetDirectoryName(DownloadedPath!)!);
+            File.WriteAllText(DownloadedPath!, "video");
+            return Task.FromResult(new DownloadResult(DownloadedPath!));
         }
     }
 
