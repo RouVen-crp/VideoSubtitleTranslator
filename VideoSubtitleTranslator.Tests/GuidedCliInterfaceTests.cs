@@ -73,7 +73,7 @@ public sealed class GuidedCliInterfaceTests
             Id = "a1b2c3d4", Input = "https://example.com/video", Status = CliTaskStatus.Interrupted, Stage = "Translate"
         };
         var terminal = new FakeTerminal(
-            [ConsoleKey.DownArrow, ConsoleKey.Enter, ConsoleKey.Enter, ConsoleKey.Enter, ConsoleKey.Enter, ConsoleKey.Escape, ConsoleKey.Q]);
+            [ConsoleKey.DownArrow, ConsoleKey.DownArrow, ConsoleKey.Enter, ConsoleKey.Enter, ConsoleKey.Enter, ConsoleKey.Enter, ConsoleKey.Enter, ConsoleKey.Escape, ConsoleKey.Q]);
         var workflow = new FakeWorkflow(temp.Path, [task]);
         using var output = new StringWriter();
         using var error = new StringWriter();
@@ -96,7 +96,7 @@ public sealed class GuidedCliInterfaceTests
             Id = "d4c3b2a1", Input = "https://example.com/video", Status = CliTaskStatus.Completed, Stage = "Completed"
         };
         var terminal = new FakeTerminal(
-            [ConsoleKey.DownArrow, ConsoleKey.Enter, ConsoleKey.Enter, ConsoleKey.Enter, ConsoleKey.Enter, ConsoleKey.Escape, ConsoleKey.Q]);
+            [ConsoleKey.DownArrow, ConsoleKey.DownArrow, ConsoleKey.Enter, ConsoleKey.Enter, ConsoleKey.Enter, ConsoleKey.Enter, ConsoleKey.Enter, ConsoleKey.Escape, ConsoleKey.Q]);
         var workflow = new FakeWorkflow(temp.Path, [task]);
         using var output = new StringWriter();
         using var error = new StringWriter();
@@ -110,15 +110,72 @@ public sealed class GuidedCliInterfaceTests
         Assert.Empty(error.ToString());
     }
 
-    private sealed class FakeWorkflow(string workspace, IReadOnlyList<CliTaskRecord>? tasks = null)
-        : ICliWorkflow, ICliTaskWorkflow, ICliPlaybackWorkflow
+    [Fact]
+    public async Task Guided_queue_processes_items_in_enqueue_order_and_updates_positions_as_tasks_start()
     {
-        private readonly IReadOnlyList<CliTaskRecord> _tasks = tasks ?? Array.Empty<CliTaskRecord>();
+        using var temp = new TemporaryDirectory();
+        var localVideo = Path.Combine(temp.Path, "local.mp4");
+        await File.WriteAllTextAsync(localVideo, "video");
+        var terminal = new FakeTerminal(
+            [ConsoleKey.DownArrow, ConsoleKey.Enter, ConsoleKey.Enter, ConsoleKey.Q],
+            ["https://example.com/first", localVideo, "https://example.com/third", ""]);
+        var workflow = new FakeWorkflow(temp.Path);
+        using var output = new StringWriter();
+        using var error = new StringWriter();
+
+        var result = await CliApplication.RunAsync([], workflow, output, error, true, temp.Path, terminal: terminal);
+
+        Assert.Equal(0, result);
+        Assert.Equal(new[] { "https://example.com/first", localVideo, "https://example.com/third" }, workflow.QueueRunInputs);
+        Assert.Equal(3, workflow.QueueStartSnapshots.Count);
+        Assert.Equal(CliTaskStatus.Running, workflow.QueueStartSnapshots[0].Single(task => task.Input.EndsWith("/first")).Status);
+        Assert.Equal(1, workflow.QueueStartSnapshots[0].Single(task => task.IsLocalFile).QueuePosition);
+        Assert.Equal(2, workflow.QueueStartSnapshots[0].Single(task => task.Input.EndsWith("/third")).QueuePosition);
+        Assert.Equal(CliTaskStatus.Completed, workflow.QueueStartSnapshots[1].Single(task => task.Input.EndsWith("/first")).Status);
+        Assert.Equal(CliTaskStatus.Running, workflow.QueueStartSnapshots[1].Single(task => task.IsLocalFile).Status);
+        Assert.Equal(1, workflow.QueueStartSnapshots[1].Single(task => task.Input.EndsWith("/third")).QueuePosition);
+        Assert.Equal(0, workflow.PlayCount);
+        Assert.Contains("批量完成", output.ToString());
+        Assert.Contains("播放器未自动打开", output.ToString());
+        Assert.Contains("第 1 位", output.ToString());
+        Assert.Empty(error.ToString());
+    }
+
+    [Fact]
+    public async Task Guided_queue_abort_marks_unstarted_tasks_interrupted_for_history_recovery()
+    {
+        using var temp = new TemporaryDirectory();
+        var terminal = new FakeTerminal(
+            [ConsoleKey.DownArrow, ConsoleKey.Enter, ConsoleKey.Enter, ConsoleKey.Q],
+            ["https://example.com/pending", "q"]);
+        var workflow = new FakeWorkflow(temp.Path);
+        using var output = new StringWriter();
+        using var error = new StringWriter();
+
+        var result = await CliApplication.RunAsync([], workflow, output, error, true, temp.Path, terminal: terminal);
+
+        Assert.Equal(0, result);
+        var task = Assert.Single(workflow.Tasks);
+        Assert.Equal(CliTaskStatus.Interrupted, task.Status);
+        Assert.Equal("InterruptedBeforeStart", task.Stage);
+        Assert.Contains("队列已中断", output.ToString());
+        Assert.Empty(workflow.QueueRunInputs);
+        Assert.Empty(error.ToString());
+    }
+
+    private sealed class FakeWorkflow(string workspace, IReadOnlyList<CliTaskRecord>? tasks = null)
+        : ICliWorkflow, ICliQueueWorkflow, ICliPlaybackWorkflow
+    {
+        private readonly List<CliTaskRecord> _tasks = tasks?.ToList() ?? [];
+        private long _queueSequence;
         public int TranslateCount { get; private set; }
         public int HistoryCount { get; private set; }
         public int ResumeCount { get; private set; }
         public int PlayCount { get; private set; }
         public TranslationRequest? LastRequest { get; private set; }
+        public List<string> QueueRunInputs { get; } = [];
+        public List<IReadOnlyList<CliTaskRecord>> QueueStartSnapshots { get; } = [];
+        public IReadOnlyList<CliTaskRecord> Tasks => _tasks;
 
         public Task<TranslationResult> TranslateAsync(TranslationRequest request, CancellationToken cancellationToken = default)
         {
@@ -135,7 +192,63 @@ public sealed class GuidedCliInterfaceTests
         public Task<IReadOnlyList<CliTaskRecord>> GetTaskHistoryAsync(CancellationToken cancellationToken = default)
         {
             HistoryCount++;
-            return Task.FromResult(_tasks);
+            SetQueuePositions();
+            return Task.FromResult<IReadOnlyList<CliTaskRecord>>(_tasks.OrderByDescending(task => task.CreatedAt).ToArray());
+        }
+
+        public Task<CliTaskRecord> EnqueueTranslationAsync(TranslationRequest request, CancellationToken cancellationToken = default)
+        {
+            var task = new CliTaskRecord
+            {
+                Id = (++_queueSequence).ToString("D8"), Input = CliInputSanitizer.Sanitize(request.Input), Status = CliTaskStatus.Queued,
+                Stage = "Queued", QueueOrder = _queueSequence, CreatedAt = DateTimeOffset.UtcNow, IsLocalFile = request.IsLocalFile
+            };
+            _tasks.Add(task);
+            SetQueuePositions();
+            return Task.FromResult(task);
+        }
+
+        public async Task<TranslationResult> RunQueuedTaskAsync(
+            string taskId,
+            string executionInput,
+            Func<IReadOnlyList<CliTaskRecord>, Task>? onQueueChanged = null,
+            CancellationToken cancellationToken = default)
+        {
+            var task = _tasks.Single(item => item.Id == taskId);
+            QueueRunInputs.Add(executionInput);
+            task.Status = CliTaskStatus.Running;
+            task.Stage = "Translating";
+            SetQueuePositions();
+            var snapshot = _tasks.Select(item => new CliTaskRecord
+            {
+                Id = item.Id, Input = item.Input, Status = item.Status, QueuePosition = item.QueuePosition,
+                QueueOrder = item.QueueOrder, CreatedAt = item.CreatedAt, IsLocalFile = item.IsLocalFile
+            }).ToArray();
+            QueueStartSnapshots.Add(snapshot);
+            if (onQueueChanged is not null) await onQueueChanged(snapshot);
+            task.Status = CliTaskStatus.Completed;
+            task.Stage = "Completed";
+            var subtitlePath = Path.Combine(workspace, task.Id + ".srt");
+            await File.WriteAllTextAsync(subtitlePath, "subtitle", cancellationToken);
+            return new TranslationResult(subtitlePath, TaskId: task.Id);
+        }
+
+        public Task InterruptQueuedTasksAsync(IEnumerable<string> taskIds, CancellationToken cancellationToken = default)
+        {
+            foreach (var task in _tasks.Where(task => taskIds.Contains(task.Id) && task.Status == CliTaskStatus.Queued))
+            {
+                task.Status = CliTaskStatus.Interrupted;
+                task.Stage = "InterruptedBeforeStart";
+            }
+            SetQueuePositions();
+            return Task.CompletedTask;
+        }
+
+        private void SetQueuePositions()
+        {
+            var position = 0;
+            foreach (var task in _tasks.Where(task => task.Status == CliTaskStatus.Queued).OrderBy(task => task.QueueOrder))
+                task.QueuePosition = ++position;
         }
 
         public Task<TranslationResult> ResumeTaskAsync(string id, CancellationToken cancellationToken = default)

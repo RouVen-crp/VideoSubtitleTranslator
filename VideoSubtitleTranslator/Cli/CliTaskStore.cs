@@ -1,5 +1,6 @@
 using System.Security.Cryptography;
 using System.Text.Json;
+using System.Text.Json.Serialization;
 using VideoSubtitleTranslator.Workbench;
 
 namespace VideoSubtitleTranslator.Cli;
@@ -22,6 +23,9 @@ public sealed class CliTaskRecord
     public Dictionary<string, string> Context { get; set; } = new(StringComparer.OrdinalIgnoreCase);
     public DateTimeOffset CreatedAt { get; set; } = DateTimeOffset.UtcNow;
     public DateTimeOffset UpdatedAt { get; set; } = DateTimeOffset.UtcNow;
+    public long QueueOrder { get; set; }
+    [JsonIgnore]
+    public int? QueuePosition { get; set; }
     public int ProcessId { get; set; }
     public Dictionary<string, StageCheckpoint> Checkpoints { get; set; } = new(StringComparer.OrdinalIgnoreCase);
     public List<string> CompletedStages { get; set; } = new();
@@ -29,6 +33,7 @@ public sealed class CliTaskRecord
 
 public sealed class CliTaskStore
 {
+    private static readonly object CreateLock = new();
     private readonly string _directory;
     private readonly Func<int, bool> _isProcessAlive;
     private static readonly JsonSerializerOptions JsonOptions = new() { WriteIndented = true };
@@ -41,16 +46,20 @@ public sealed class CliTaskStore
 
     public CliTaskRecord Create(TranslationRequest request)
     {
-        Directory.CreateDirectory(_directory);
-        var task = new CliTaskRecord
+        lock (CreateLock)
         {
-            Id = Guid.NewGuid().ToString("N")[..8], Input = CliInputSanitizer.Sanitize(request.Input), Mode = request.Mode,
-            WorkspaceRoot = request.WorkspaceRoot, IsLocalFile = request.IsLocalFile,
-            Bilingual = request.CreateBilingualSubtitle, Burn = request.BurnSubtitles,
-            Status = CliTaskStatus.Queued, ProcessId = Environment.ProcessId
-        };
-        Save(task);
-        return task;
+            Directory.CreateDirectory(_directory);
+            var nextQueueOrder = ReadQueueOrderMaximum() + 1;
+            var task = new CliTaskRecord
+            {
+                Id = Guid.NewGuid().ToString("N")[..8], Input = CliInputSanitizer.Sanitize(request.Input), Mode = request.Mode,
+                WorkspaceRoot = request.WorkspaceRoot, IsLocalFile = request.IsLocalFile,
+                Bilingual = request.CreateBilingualSubtitle, Burn = request.BurnSubtitles,
+                Status = CliTaskStatus.Queued, ProcessId = Environment.ProcessId, QueueOrder = nextQueueOrder
+            };
+            Save(task);
+            return task;
+        }
     }
 
     public void Save(CliTaskRecord task)
@@ -76,7 +85,7 @@ public sealed class CliTaskStore
     public IReadOnlyList<CliTaskRecord> List()
     {
         if (!Directory.Exists(_directory)) return Array.Empty<CliTaskRecord>();
-        return Directory.EnumerateFiles(_directory, "*.json").Select(path =>
+        var tasks = Directory.EnumerateFiles(_directory, "*.json").Select(path =>
         {
             try
             {
@@ -86,14 +95,32 @@ public sealed class CliTaskStore
                 return task;
             }
             catch (JsonException) { return null; }
-        }).Where(task => task is not null).Cast<CliTaskRecord>().OrderByDescending(task => task.CreatedAt).ToArray();
+        }).Where(task => task is not null).Cast<CliTaskRecord>().ToArray();
+        var queuePosition = 0;
+        foreach (var task in tasks.Where(task => task.Status == CliTaskStatus.Queued)
+                     .OrderBy(task => task.QueueOrder).ThenBy(task => task.CreatedAt).ThenBy(task => task.Id))
+            task.QueuePosition = ++queuePosition;
+        return tasks.OrderByDescending(task => task.CreatedAt).ToArray();
     }
 
     public static bool IsValidId(string id) => id.Length == 8 && id.All(Uri.IsHexDigit);
     private string GetPath(string id) => Path.Combine(_directory, id + ".json");
+    private long ReadQueueOrderMaximum()
+    {
+        if (!Directory.Exists(_directory)) return 0;
+        return Directory.EnumerateFiles(_directory, "*.json")
+            .Select(path =>
+            {
+                try { return JsonSerializer.Deserialize<CliTaskRecord>(File.ReadAllText(path))?.QueueOrder ?? 0; }
+                catch (JsonException) { return 0; }
+            })
+            .DefaultIfEmpty(0)
+            .Max();
+    }
+
     private void MarkInterruptedIfOrphaned(CliTaskRecord task)
     {
-        if (task.Status == CliTaskStatus.Running && !_isProcessAlive(task.ProcessId))
+        if (task.Status is CliTaskStatus.Running or CliTaskStatus.Queued && !_isProcessAlive(task.ProcessId))
         {
             task.Status = CliTaskStatus.Interrupted;
             task.Stage = "Interrupted";

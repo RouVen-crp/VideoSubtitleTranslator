@@ -31,11 +31,11 @@ public sealed class GuidedCliInterface
         var selection = 0;
         while (true)
         {
-            Draw("zimu", ["翻译视频", "任务历史", "退出"], selection, MenuFooter);
+            Draw("zimu", ["翻译视频", "批量加入队列", "任务历史", "退出"], selection, MenuFooter);
             var key = _terminal.ReadKey().Key;
             if (IsQuit(key) || key == ConsoleKey.Escape) return 0;
-            if (key == ConsoleKey.UpArrow) selection = (selection + 2) % 3;
-            else if (key == ConsoleKey.DownArrow) selection = (selection + 1) % 3;
+            if (key == ConsoleKey.UpArrow) selection = (selection + 3) % 4;
+            else if (key == ConsoleKey.DownArrow) selection = (selection + 1) % 4;
             else if (key == ConsoleKey.Enter)
             {
                 if (selection == 0)
@@ -44,12 +44,119 @@ public sealed class GuidedCliInterface
                 }
                 else if (selection == 1)
                 {
+                    if (!await QueueTranslationsAsync()) return 0;
+                }
+                else if (selection == 2)
+                {
                     if (!await BrowseHistoryAsync()) return 0;
                 }
                 else return 0;
             }
         }
     }
+
+    private async Task<bool> QueueTranslationsAsync()
+    {
+        if (_workflow is not ICliQueueWorkflow queueWorkflow)
+        {
+            Draw("批量翻译", ["当前工作流不支持队列。"], 0, "Enter 返回 | Q 退出");
+            return !IsQuit(_terminal.ReadKey().Key);
+        }
+
+        var queued = new List<(CliTaskRecord Task, string ExecutionInput)>();
+        while (true)
+        {
+            var rows = queued.Count == 0
+                ? new[] { "还没有加入视频。" }
+                : queued.Select(item => $"第 {item.Task.QueuePosition} 位  {CliInputSanitizer.Sanitize(item.Task.Input)}").ToArray();
+            Draw("批量加入队列", [.. rows, "输入视频 URL 或本地路径："], -1,
+                "输入 URL/路径 继续添加 | 空行开始处理 | q 中断队列");
+            var input = _terminal.ReadLine()?.Trim();
+            if (string.IsNullOrEmpty(input))
+            {
+                if (queued.Count == 0) return true;
+                return await RunQueuedBatchAsync(queueWorkflow, queued);
+            }
+            if (string.Equals(input, "q", StringComparison.OrdinalIgnoreCase))
+            {
+                await queueWorkflow.InterruptQueuedTasksAsync(queued.Select(item => item.Task.Id), _cancellationToken);
+                DrawWithoutClear("队列已中断", ["已加入的任务可在任务历史中查看并恢复。"], "Enter 返回 | Q 退出");
+                return !IsQuit(_terminal.ReadKey().Key);
+            }
+
+            if (!CliApplication.TryParseTranslate([input], _currentDirectory, out var request, out var parseError))
+            {
+                DrawWithoutClear("无法加入", [parseError], "Enter 继续添加 | Q 退出");
+                if (IsQuit(_terminal.ReadKey().Key))
+                {
+                    await queueWorkflow.InterruptQueuedTasksAsync(queued.Select(item => item.Task.Id), _cancellationToken);
+                    return false;
+                }
+                continue;
+            }
+
+            try
+            {
+                var task = await queueWorkflow.EnqueueTranslationAsync(request!, _cancellationToken);
+                queued.Add((task, request!.Input));
+            }
+            catch (Exception)
+            {
+                DrawWithoutClear("无法加入", ["任务未能加入队列，请检查输入和工作区设置。"], "Enter 继续 | Q 退出");
+                if (IsQuit(_terminal.ReadKey().Key))
+                {
+                    await queueWorkflow.InterruptQueuedTasksAsync(queued.Select(item => item.Task.Id), _cancellationToken);
+                    return false;
+                }
+            }
+        }
+    }
+
+    private async Task<bool> RunQueuedBatchAsync(
+        ICliQueueWorkflow queueWorkflow,
+        IReadOnlyList<(CliTaskRecord Task, string ExecutionInput)> queued)
+    {
+        var completed = 0;
+        var failed = 0;
+        foreach (var item in queued.OrderBy(item => item.Task.QueueOrder))
+        {
+            try
+            {
+                await queueWorkflow.RunQueuedTaskAsync(item.Task.Id, item.ExecutionInput, snapshot =>
+                {
+                    Draw("批量翻译", QueueRows(snapshot), -1, "按队列顺序处理 | 批量完成后返回");
+                    return Task.CompletedTask;
+                }, _cancellationToken);
+                completed++;
+            }
+            catch (OperationCanceledException) when (_cancellationToken.IsCancellationRequested)
+            {
+                await queueWorkflow.InterruptQueuedTasksAsync(queued.Select(queuedItem => queuedItem.Task.Id), CancellationToken.None);
+                DrawWithoutClear("队列已中断", ["未开始的任务已保留在历史中，可逐项恢复。"], "Enter 返回 | Q 退出");
+                return !IsQuit(_terminal.ReadKey().Key);
+            }
+            catch (Exception)
+            {
+                failed++;
+                _error.WriteLine($"任务 {item.Task.Id} 未完成；后续队列任务仍会继续。");
+            }
+
+            var current = await queueWorkflow.GetTaskHistoryAsync(_cancellationToken);
+            Draw("批量翻译", QueueRows(current), -1, "按队列顺序处理 | 批量完成后返回");
+        }
+
+        Draw("批量完成", [$"完成：{completed}", $"失败：{failed}", "播放器未自动打开。"], -1, "Enter 返回 | Q 退出");
+        return !IsQuit(_terminal.ReadKey().Key);
+    }
+
+    private static IReadOnlyList<string> QueueRows(IReadOnlyList<CliTaskRecord> tasks) => tasks
+        .Where(task => task.Status is CliTaskStatus.Queued or CliTaskStatus.Running)
+        .OrderBy(task => task.Status == CliTaskStatus.Running ? 0 : 1)
+        .ThenBy(task => task.QueuePosition ?? int.MaxValue)
+        .Select(task => task.Status == CliTaskStatus.Queued
+            ? $"排队第 {task.QueuePosition} 位  {CliInputSanitizer.Sanitize(task.Input)}"
+            : $"正在处理  {CliInputSanitizer.Sanitize(task.Input)}")
+        .ToArray();
 
     private async Task<bool> TranslateAsync()
     {
@@ -108,7 +215,10 @@ public sealed class GuidedCliInterface
             while (true)
             {
                 var rows = tasks.Select(task =>
-                    $"{task.Id}  {CliApplication.StatusLabel(task.Status),-6} {task.Stage,-12} {CliInputSanitizer.Sanitize(task.Input)}").ToArray();
+                {
+                    var queuePosition = task.QueuePosition is int position ? $"队列第 {position} 位 " : string.Empty;
+                    return $"{task.Id}  {CliApplication.StatusLabel(task.Status),-6} {queuePosition}{task.Stage,-12} {CliInputSanitizer.Sanitize(task.Input)}";
+                }).ToArray();
                 Draw("任务历史", rows, selection, MenuFooter);
                 var key = _terminal.ReadKey().Key;
                 if (IsQuit(key)) return false;

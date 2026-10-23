@@ -7,7 +7,7 @@ using System.Runtime.InteropServices;
 
 namespace VideoSubtitleTranslator.Cli;
 
-public sealed class PipelineTranslationWorkflow : ICliWorkflow, ICliTaskWorkflow, ICliPlaybackWorkflow
+public sealed class PipelineTranslationWorkflow : ICliWorkflow, ICliTaskWorkflow, ICliPlaybackWorkflow, ICliQueueWorkflow
 {
     private readonly Func<string, CancellationToken, Task<string?>> _mediaValidator;
     private readonly Func<PipelineConfig, Dictionary<string, string>, TranslatorRuntimeConfig, Dictionary<string, string>> _pipelineRunner;
@@ -38,6 +38,46 @@ public sealed class PipelineTranslationWorkflow : ICliWorkflow, ICliTaskWorkflow
 
     public Task<TranslationResult> TranslateAsync(TranslationRequest request, CancellationToken cancellationToken = default) =>
         ExecuteTaskAsync(_taskStore.Create(request), cancellationToken, request.Input);
+
+    public Task<CliTaskRecord> EnqueueTranslationAsync(TranslationRequest request, CancellationToken cancellationToken = default)
+    {
+        cancellationToken.ThrowIfCancellationRequested();
+        var task = _taskStore.Create(request);
+        task.QueuePosition = _taskStore.List().FirstOrDefault(candidate => candidate.Id == task.Id)?.QueuePosition;
+        return Task.FromResult(task);
+    }
+
+    public Task<TranslationResult> RunQueuedTaskAsync(
+        string taskId,
+        string executionInput,
+        Func<IReadOnlyList<CliTaskRecord>, Task>? onQueueChanged = null,
+        CancellationToken cancellationToken = default)
+    {
+        cancellationToken.ThrowIfCancellationRequested();
+        var task = _taskStore.Get(taskId) ?? throw new InvalidOperationException("找不到该任务。");
+        if (task.Status != CliTaskStatus.Queued)
+            throw new InvalidOperationException("只有排队中的任务可以开始。");
+
+        return ExecuteTaskAsync(task, cancellationToken, executionInput, onStarted: async () =>
+        {
+            if (onQueueChanged is not null)
+                await onQueueChanged(_taskStore.List());
+        });
+    }
+
+    public Task InterruptQueuedTasksAsync(IEnumerable<string> taskIds, CancellationToken cancellationToken = default)
+    {
+        cancellationToken.ThrowIfCancellationRequested();
+        foreach (var taskId in taskIds)
+        {
+            var task = _taskStore.Get(taskId);
+            if (task is null || task.Status != CliTaskStatus.Queued) continue;
+            task.Status = CliTaskStatus.Interrupted;
+            task.Stage = "InterruptedBeforeStart";
+            _taskStore.Save(task);
+        }
+        return Task.CompletedTask;
+    }
 
     public Task<IReadOnlyList<CliTaskRecord>> GetTaskHistoryAsync(CancellationToken cancellationToken = default)
     {
@@ -81,26 +121,31 @@ public sealed class PipelineTranslationWorkflow : ICliWorkflow, ICliTaskWorkflow
         return Task.FromResult(_videoPlayback.Play(videoPath, task.SubtitlePath));
     }
 
-    private async Task<TranslationResult> ExecuteTaskAsync(CliTaskRecord task, CancellationToken cancellationToken, string? inputOverride = null)
+    private async Task<TranslationResult> ExecuteTaskAsync(
+        CliTaskRecord task,
+        CancellationToken cancellationToken,
+        string? inputOverride = null,
+        Func<Task>? onStarted = null)
     {
         var request = new TranslationRequest(inputOverride ?? task.Input, task.Mode, task.WorkspaceRoot, task.IsLocalFile, task.Bilingual, task.Burn);
         task.Status = CliTaskStatus.Running;
         task.Stage = "Translating";
         task.ProcessId = Environment.ProcessId;
         _taskStore.Save(task);
-        Program.LoadEnv();
 
         try
         {
-        cancellationToken.ThrowIfCancellationRequested();
-        var result = request.IsLocalFile
-            ? await TranslateLocalAsync(request, task, cancellationToken)
-            : await TranslateRemoteAsync(request, task, cancellationToken);
-        task.Status = CliTaskStatus.Completed;
-        task.Stage = "Completed";
-        task.SubtitlePath = result.SubtitlePath;
-        _taskStore.Save(task);
-        return result with { TaskId = task.Id };
+            if (onStarted is not null) await onStarted();
+            Program.LoadEnv();
+            cancellationToken.ThrowIfCancellationRequested();
+            var result = request.IsLocalFile
+                ? await TranslateLocalAsync(request, task, cancellationToken)
+                : await TranslateRemoteAsync(request, task, cancellationToken);
+            task.Status = CliTaskStatus.Completed;
+            task.Stage = "Completed";
+            task.SubtitlePath = result.SubtitlePath;
+            _taskStore.Save(task);
+            return result with { TaskId = task.Id };
         }
         catch (OperationCanceledException)
         {

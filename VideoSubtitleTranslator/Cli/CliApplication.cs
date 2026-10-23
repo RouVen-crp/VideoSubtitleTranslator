@@ -54,9 +54,9 @@ public static class CliApplication
             if (tasks.Count == 0) standardOutput.WriteLine("暂无翻译任务。");
             else
             {
-                standardOutput.WriteLine("ID       状态       阶段         输入");
+                standardOutput.WriteLine("ID       状态       队列位置 阶段         输入");
                 foreach (var task in tasks)
-                    standardOutput.WriteLine($"{task.Id}  {StatusLabel(task.Status),-8} {task.Stage,-12} {CliInputSanitizer.Sanitize(task.Input)}");
+                    standardOutput.WriteLine($"{task.Id}  {StatusLabel(task.Status),-8} {task.QueuePosition?.ToString() ?? "-",-8} {task.Stage,-12} {CliInputSanitizer.Sanitize(task.Input)}");
             }
             standardOutput.WriteLine("提示：zimu resume <ID> 恢复失败或中断的任务；--help 查看命令。");
             return Success;
@@ -304,7 +304,7 @@ public static class CliApplication
         return true;
     }
 
-    private static bool TryParseTranslate(
+    internal static bool TryParseTranslate(
         string[] args,
         string currentDirectory,
         out TranslationRequest? request,

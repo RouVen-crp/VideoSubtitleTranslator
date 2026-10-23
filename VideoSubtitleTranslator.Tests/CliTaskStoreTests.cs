@@ -49,6 +49,39 @@ public sealed class CliTaskStoreTests
     }
 
     [Fact]
+    public void Queue_positions_follow_creation_order_and_close_gaps_when_a_task_starts()
+    {
+        using var temp = new TemporaryDirectory();
+        var store = new CliTaskStore(temp.Path);
+        var first = store.Create(new TranslationRequest("first.mp4", "standard", temp.Path, true));
+        var second = store.Create(new TranslationRequest("second.mp4", "standard", temp.Path, true));
+        var third = store.Create(new TranslationRequest("third.mp4", "standard", temp.Path, true));
+        first.Status = CliTaskStatus.Running;
+        store.Save(first);
+
+        var history = store.List().ToDictionary(task => task.Id);
+
+        Assert.Null(history[first.Id].QueuePosition);
+        Assert.Equal(1, history[second.Id].QueuePosition);
+        Assert.Equal(2, history[third.Id].QueuePosition);
+        Assert.True(first.QueueOrder < second.QueueOrder);
+        Assert.True(second.QueueOrder < third.QueueOrder);
+    }
+
+    [Fact]
+    public void Orphaned_queued_tasks_become_interrupted_for_history_recovery()
+    {
+        using var temp = new TemporaryDirectory();
+        var store = new CliTaskStore(temp.Path);
+        store.Create(new TranslationRequest("video.mp4", "standard", temp.Path, true));
+
+        var history = new CliTaskStore(temp.Path, _ => false).List();
+
+        Assert.Equal(CliTaskStatus.Interrupted, Assert.Single(history).Status);
+        Assert.Equal("Interrupted", history[0].Stage);
+    }
+
+    [Fact]
     public async Task Checkpoint_detects_missing_or_modified_artifacts()
     {
         using var temp = new TemporaryDirectory();
