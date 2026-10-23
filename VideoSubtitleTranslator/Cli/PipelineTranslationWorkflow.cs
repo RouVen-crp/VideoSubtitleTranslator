@@ -7,34 +7,92 @@ using System.Runtime.InteropServices;
 
 namespace VideoSubtitleTranslator.Cli;
 
-public sealed class PipelineTranslationWorkflow : ICliWorkflow
+public sealed class PipelineTranslationWorkflow : ICliWorkflow, ICliTaskWorkflow
 {
     private readonly Func<string, CancellationToken, Task<string?>> _mediaValidator;
     private readonly Func<PipelineConfig, Dictionary<string, string>, TranslatorRuntimeConfig, Dictionary<string, string>> _pipelineRunner;
+    private readonly bool _hasInjectedPipelineRunner;
     private readonly Func<string, IReadOnlyList<string>, string, CancellationToken, Task<int>> _mediaProcessRunner;
+    private readonly CliTaskStore _taskStore;
+    private readonly CliPipelineExecutor _taskPipelineExecutor;
 
     public PipelineTranslationWorkflow(
         Func<string, CancellationToken, Task<string?>>? mediaValidator = null,
         Func<PipelineConfig, Dictionary<string, string>, TranslatorRuntimeConfig, Dictionary<string, string>>? pipelineRunner = null,
-        Func<string, IReadOnlyList<string>, string, CancellationToken, Task<int>>? mediaProcessRunner = null)
+        Func<string, IReadOnlyList<string>, string, CancellationToken, Task<int>>? mediaProcessRunner = null,
+        CliTaskStore? taskStore = null,
+        Func<PipelineStepConfig, Dictionary<string, string>, TranslatorRuntimeConfig, Dictionary<string, string>>? pipelineStepRunner = null)
     {
         _mediaValidator = mediaValidator ?? ValidateMediaAsync;
+        _hasInjectedPipelineRunner = pipelineRunner is not null;
         _pipelineRunner = pipelineRunner ?? ((config, context, runtime) => new PipelineRunner(new PipelineRegistry()).Run(config, context, runtime));
         _mediaProcessRunner = mediaProcessRunner ?? RunMediaProcessAsync;
+        _taskStore = taskStore ?? new CliTaskStore();
+        _taskPipelineExecutor = new CliPipelineExecutor(_taskStore, pipelineStepRunner);
     }
 
-    public async Task<TranslationResult> TranslateAsync(TranslationRequest request, CancellationToken cancellationToken = default)
+    public Task<TranslationResult> TranslateAsync(TranslationRequest request, CancellationToken cancellationToken = default) =>
+        ExecuteTaskAsync(_taskStore.Create(request), cancellationToken, request.Input);
+
+    public Task<IReadOnlyList<CliTaskRecord>> GetTaskHistoryAsync(CancellationToken cancellationToken = default)
     {
         cancellationToken.ThrowIfCancellationRequested();
+        return Task.FromResult(_taskStore.List());
+    }
+
+    public Task<TranslationResult> ResumeTaskAsync(string id, CancellationToken cancellationToken = default)
+    {
+        cancellationToken.ThrowIfCancellationRequested();
+        var task = _taskStore.Get(id) ?? throw new InvalidOperationException("找不到该任务。");
+        if (task.Status is not (CliTaskStatus.Interrupted or CliTaskStatus.Failed))
+            throw new InvalidOperationException("只有失败或中断的任务可以恢复。");
+        return ExecuteTaskAsync(task, cancellationToken);
+    }
+
+    private async Task<TranslationResult> ExecuteTaskAsync(CliTaskRecord task, CancellationToken cancellationToken, string? inputOverride = null)
+    {
+        var request = new TranslationRequest(inputOverride ?? task.Input, task.Mode, task.WorkspaceRoot, task.IsLocalFile, task.Bilingual, task.Burn);
+        task.Status = CliTaskStatus.Running;
+        task.Stage = "Translating";
+        task.ProcessId = Environment.ProcessId;
+        _taskStore.Save(task);
         Program.LoadEnv();
 
-        if (request.IsLocalFile)
-            return await TranslateLocalAsync(request, cancellationToken);
+        try
+        {
+        cancellationToken.ThrowIfCancellationRequested();
+        var result = request.IsLocalFile
+            ? await TranslateLocalAsync(request, task, cancellationToken)
+            : await TranslateRemoteAsync(request, task, cancellationToken);
+        task.Status = CliTaskStatus.Completed;
+        task.Stage = "Completed";
+        task.SubtitlePath = result.SubtitlePath;
+        _taskStore.Save(task);
+        return result with { TaskId = task.Id };
+        }
+        catch (OperationCanceledException)
+        {
+            task.Status = CliTaskStatus.Interrupted;
+            task.Stage = "Interrupted";
+            _taskStore.Save(task);
+            throw;
+        }
+        catch
+        {
+            task.Status = CliTaskStatus.Failed;
+            task.Stage = "Failed";
+            _taskStore.Save(task);
+            throw;
+        }
+    }
+
+    private async Task<TranslationResult> TranslateRemoteAsync(TranslationRequest request, CliTaskRecord task, CancellationToken cancellationToken)
+    {
 
         var (pipelinePath, translatorPath) = Program.ResolveConfigPaths(request.Mode, AppContext.BaseDirectory);
         var translatorConfig = LoadCliTranslatorConfig(translatorPath, request.Mode);
 
-        var initialContext = new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase)
+        var initialContext = new Dictionary<string, string>(task.Context, StringComparer.OrdinalIgnoreCase)
         {
             ["Url"] = request.Input,
             ["WorkspaceRoot"] = request.WorkspaceRoot,
@@ -52,7 +110,9 @@ public sealed class PipelineTranslationWorkflow : ICliWorkflow
             pipelineConfig.Steps = pipelineConfig.Steps
                 .Where(step => step.Step != "BurnSubtitle")
                 .ToList();
-            var context = _pipelineRunner(pipelineConfig, initialContext, translatorConfig);
+            var context = _hasInjectedPipelineRunner
+                ? _pipelineRunner(pipelineConfig, initialContext, translatorConfig)
+                : _taskPipelineExecutor.Execute(pipelineConfig, initialContext, translatorConfig, task);
             var dirs = new WorkDirs(context["WorkspacePath"], context["VideoExt"]);
             return await CreateTranslationResultAsync(dirs, request, translatorConfig, cancellationToken);
         }
@@ -130,7 +190,7 @@ public sealed class PipelineTranslationWorkflow : ICliWorkflow
         }
     }
 
-    private async Task<TranslationResult> TranslateLocalAsync(TranslationRequest request, CancellationToken cancellationToken)
+    private async Task<TranslationResult> TranslateLocalAsync(TranslationRequest request, CliTaskRecord task, CancellationToken cancellationToken)
     {
         if (!File.Exists(request.Input))
             throw new FileNotFoundException("本地视频文件不存在。", request.Input);
@@ -143,8 +203,10 @@ public sealed class PipelineTranslationWorkflow : ICliWorkflow
 
         var extension = Path.GetExtension(request.Input);
         var title = Path.GetFileNameWithoutExtension(request.Input);
-        var workspacePath = GetAvailableWorkspacePath(request.WorkspaceRoot, title);
-        var initialContext = new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase)
+        var workspacePath = task.WorkspacePath ?? GetAvailableWorkspacePath(request.WorkspaceRoot, title);
+        task.WorkspacePath = workspacePath;
+        _taskStore.Save(task);
+        var initialContext = new Dictionary<string, string>(task.Context, StringComparer.OrdinalIgnoreCase)
         {
             ["Url"] = request.Input,
             ["WorkspaceRoot"] = request.WorkspaceRoot,
@@ -162,13 +224,15 @@ public sealed class PipelineTranslationWorkflow : ICliWorkflow
             Console.SetOut(Console.Error);
             Directory.CreateDirectory(initialContext["WorkspacePath"]);
             var dirs = new WorkDirs(initialContext["WorkspacePath"], extension);
-            File.Copy(request.Input, dirs.VideoPath, overwrite: false);
+            if (!File.Exists(dirs.VideoPath)) File.Copy(request.Input, dirs.VideoPath, overwrite: false);
 
             var config = PipelineRunner.LoadConfig(pipelinePath);
             config.Steps = config.Steps
                 .Where(step => step.Step is not ("InitMetadata" or "Download" or "BurnSubtitle"))
                 .ToList();
-            var context = _pipelineRunner(config, initialContext, translatorConfig);
+            var context = _hasInjectedPipelineRunner
+                ? _pipelineRunner(config, initialContext, translatorConfig)
+                : _taskPipelineExecutor.Execute(config, initialContext, translatorConfig, task);
             dirs = new WorkDirs(context["WorkspacePath"], context["VideoExt"]);
             var result = await CreateTranslationResultAsync(dirs, request, translatorConfig, cancellationToken);
             var sidecar = GetAvailableSidecarPath(request.Input);

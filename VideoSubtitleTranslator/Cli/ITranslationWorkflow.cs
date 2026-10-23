@@ -12,7 +12,8 @@ public sealed record TranslationResult(
     string SubtitlePath,
     string? SidecarSubtitlePath = null,
     string? BilingualSubtitlePath = null,
-    string? BurnedVideoPath = null);
+    string? BurnedVideoPath = null,
+    string? TaskId = null);
 
 public sealed class LocalVideoValidationException(string message) : Exception(message);
 

@@ -35,6 +35,51 @@ public static class CliApplication
             return Success;
         }
 
+        if (string.Equals(args[0], "history", StringComparison.OrdinalIgnoreCase))
+        {
+            if (workflow is not ICliTaskWorkflow taskWorkflow || args.Length != 1)
+            {
+                standardError.WriteLine("用法：zimu history");
+                return UsageError;
+            }
+            var tasks = await taskWorkflow.GetTaskHistoryAsync(cancellationToken);
+            if (tasks.Count == 0) standardOutput.WriteLine("暂无翻译任务。");
+            else
+            {
+                standardOutput.WriteLine("ID       状态       阶段         输入");
+                foreach (var task in tasks)
+                    standardOutput.WriteLine($"{task.Id}  {StatusLabel(task.Status),-8} {task.Stage,-12} {CliInputSanitizer.Sanitize(task.Input)}");
+            }
+            standardOutput.WriteLine("提示：zimu resume <ID> 恢复失败或中断的任务；--help 查看命令。");
+            return Success;
+        }
+
+        if (string.Equals(args[0], "resume", StringComparison.OrdinalIgnoreCase))
+        {
+            if (workflow is not ICliTaskWorkflow taskWorkflow || args.Length != 2 || !CliTaskStore.IsValidId(args[1]))
+            {
+                standardError.WriteLine("用法：zimu resume <任务ID>");
+                return UsageError;
+            }
+            standardError.WriteLine("恢复任务时，尚未完成的模型请求可能会重新执行并产生费用。");
+            try
+            {
+                var resumed = await taskWorkflow.ResumeTaskAsync(args[1], cancellationToken);
+                if (string.IsNullOrWhiteSpace(resumed.SubtitlePath) || !File.Exists(resumed.SubtitlePath))
+                {
+                    standardError.WriteLine("恢复后未找到中文字幕文件。");
+                    return TranslationError;
+                }
+                standardOutput.WriteLine($"任务 {args[1]} 已完成：{Path.GetFullPath(resumed.SubtitlePath)}");
+                return Success;
+            }
+            catch (Exception)
+            {
+                standardError.WriteLine("任务恢复失败。请运行 zimu history 查看任务状态和阶段。");
+                return TranslationError;
+            }
+        }
+
         if (string.Equals(args[0], "download", StringComparison.OrdinalIgnoreCase))
         {
             if (args.Length == 2 && IsHelp(args[1]))
@@ -123,6 +168,7 @@ public static class CliApplication
             }
 
             standardOutput.WriteLine($"中文字幕已生成：{Path.GetFullPath(result.SubtitlePath)}");
+            if (!string.IsNullOrWhiteSpace(result.TaskId)) standardOutput.WriteLine($"任务 ID：{result.TaskId}");
             if (!string.IsNullOrWhiteSpace(result.SidecarSubtitlePath))
                 standardOutput.WriteLine($"源视频旁的字幕：{Path.GetFullPath(result.SidecarSubtitlePath)}");
             if (!string.IsNullOrWhiteSpace(result.BilingualSubtitlePath))
@@ -292,6 +338,8 @@ public static class CliApplication
         writer.WriteLine("用法：");
         writer.WriteLine("  zimu translate <URL|视频路径> [--mode standard|meme] [--bilingual] [--burn] [--workspace <目录>]");
         writer.WriteLine("  zimu download <URL>");
+        writer.WriteLine("  zimu history");
+        writer.WriteLine("  zimu resume <任务ID>");
         writer.WriteLine("  zimu --help");
         writer.WriteLine();
         writer.WriteLine("示例：");
@@ -300,6 +348,12 @@ public static class CliApplication
         writer.WriteLine("  zimu translate https://example.com/video --mode meme");
         writer.WriteLine("  zimu download https://example.com/video");
     }
+
+    private static string StatusLabel(CliTaskStatus status) => status switch
+    {
+        CliTaskStatus.Queued => "排队中", CliTaskStatus.Running => "运行中", CliTaskStatus.Completed => "已完成",
+        CliTaskStatus.Failed => "失败", CliTaskStatus.Interrupted => "已中断", _ => "未知"
+    };
 
     private static void WriteDownloadHelp(TextWriter writer)
     {
