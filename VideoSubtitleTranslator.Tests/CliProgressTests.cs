@@ -25,7 +25,8 @@ public sealed class CliProgressTests
                 {
                     case "SplitAudio": File.WriteAllText(dirs.AudioPath, "audio"); break;
                     case "ExtractSubtitle":
-                        Thread.Sleep(60);
+                        // Leave enough time for timer callbacks on slower CI runners.
+                        Thread.Sleep(300);
                         File.WriteAllText(dirs.SubtitlePath, "raw subtitles");
                         break;
                     case "BuildSentences": File.WriteAllText(dirs.RawSubtitlePath, "sentences"); break;
