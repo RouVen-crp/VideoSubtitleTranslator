@@ -47,7 +47,13 @@ internal sealed class CliDependencyDiagnostics
                     PropertyNameCaseInsensitive = true
                 });
                 config ??= new TranslatorRuntimeConfig();
-                checks.Add(new(true, $"翻译配置可读取：{DisplayPath(configPath)}"));
+                if (config.Tools is null || config.Whisper is null || config.Llm is null)
+                    checks.Add(new(false, $"翻译配置缺少 tools、whisper 或 llm 配置段。请恢复有效的 {DisplayPath(configPath)}。"));
+                else
+                    checks.Add(new(true, $"翻译配置可读取：{DisplayPath(configPath)}"));
+                config.Tools ??= new ExternalToolsConfig();
+                config.Whisper ??= new WhisperConfig();
+                config.Llm ??= new LlmConfig();
             }
             catch (Exception)
             {
@@ -59,29 +65,23 @@ internal sealed class CliDependencyDiagnostics
         var includeTranslate = target is null or "translate";
         if (includeDownload)
         {
-            var ytDlp = ResolveEnvironmentOverride("VST_YTDLP_PATH", config?.Tools.YtDlpPath ?? "yt-dlp");
+            var ytDlp = ResolveEnvironmentOverride("VST_YTDLP_PATH", config?.Tools?.YtDlpPath ?? "yt-dlp");
             AddCommandCheck(checks, ytDlp, "yt-dlp", "用于下载在线视频。请安装 yt-dlp，或通过 VST_YTDLP_PATH 指定已有程序。");
         }
 
         if (!includeTranslate) return checks;
-
-        if (!includeDownload)
-        {
-            var ytDlp = ResolveEnvironmentOverride("VST_YTDLP_PATH", config?.Tools.YtDlpPath ?? "yt-dlp");
-            AddCommandCheck(checks, ytDlp, "yt-dlp", "仅在线翻译需要下载器。请安装 yt-dlp，或通过 VST_YTDLP_PATH 指定已有程序；本地视频可忽略此项。");
-        }
 
         var pipelinePath = Path.Combine(_baseDirectory, "pipeline.config.json");
         checks.Add(new(_fileExists(pipelinePath), _fileExists(pipelinePath)
             ? $"翻译流水线配置可读取：{DisplayPath(pipelinePath)}"
             : $"未找到翻译流水线配置 {DisplayPath(pipelinePath)}。请恢复 pipeline.config.json。"));
 
-        var ffmpeg = ResolveEnvironmentOverride("VST_FFMPEG_PATH", config?.Tools.FfmpegPath ?? "ffmpeg");
-        var ffprobe = ResolveEnvironmentOverride("VST_FFPROBE_PATH", config?.Tools.FfprobePath ?? "ffprobe");
+        var ffmpeg = ResolveEnvironmentOverride("VST_FFMPEG_PATH", config?.Tools?.FfmpegPath ?? "ffmpeg");
+        var ffprobe = ResolveEnvironmentOverride("VST_FFPROBE_PATH", config?.Tools?.FfprobePath ?? "ffprobe");
         AddCommandCheck(checks, ffmpeg, "ffmpeg", "用于音频提取及媒体处理。请安装 FFmpeg，或通过 VST_FFMPEG_PATH 指定已有程序。");
         AddCommandCheck(checks, ffprobe, "ffprobe", "用于检查视频轨道。请安装 FFmpeg，或通过 VST_FFPROBE_PATH 指定已有程序。");
 
-        var python = ResolvePython(config?.Whisper.PythonExecutable ?? "python3");
+        var python = ResolvePython(config?.Whisper?.PythonExecutable ?? "python3");
         var pythonExists = _commandExists(python);
         checks.Add(new(pythonExists, pythonExists
             ? $"Python 可用：{Path.GetFileName(python)}"
@@ -94,7 +94,7 @@ internal sealed class CliDependencyDiagnostics
                 : $"Python 缺少 Whisper 或 srt。请运行 VideoSubtitleTranslator/scripts/init_python_venv.sh，或在已有 Python 环境中安装 PythonScripts/requirements.txt 中的依赖。"));
         }
 
-        var apiKeyEnv = string.IsNullOrWhiteSpace(config?.Llm.ApiKeyEnv) ? "DEEPSEEK_API_KEY" : config.Llm.ApiKeyEnv;
+        var apiKeyEnv = string.IsNullOrWhiteSpace(config?.Llm?.ApiKeyEnv) ? "DEEPSEEK_API_KEY" : config.Llm.ApiKeyEnv;
         var keyConfigured = !string.IsNullOrWhiteSpace(_getEnvironmentVariable(apiKeyEnv));
         checks.Add(new(keyConfigured, keyConfigured
             ? $"LLM 密钥环境变量已设置：{apiKeyEnv}（值不会显示）。"

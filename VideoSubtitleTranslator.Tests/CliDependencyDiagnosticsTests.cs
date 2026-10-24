@@ -42,6 +42,7 @@ public sealed class CliDependencyDiagnosticsTests
         Assert.Contains(checks, check => !check.IsAvailable && check.Message.Contains("Whisper", StringComparison.Ordinal));
         Assert.Contains("DEEPSEEK_API_KEY", output);
         Assert.DoesNotContain("configured", output);
+        Assert.DoesNotContain(checks, check => check.Message.Contains("yt-dlp", StringComparison.Ordinal));
     }
 
     [Fact]
@@ -61,6 +62,28 @@ public sealed class CliDependencyDiagnosticsTests
         Assert.Contains(checks, check => check.IsAvailable && check.Message.Contains("翻译配置可读取", StringComparison.Ordinal));
         Assert.Contains(checks, check => !check.IsAvailable && check.Message.Contains("yt-dlp", StringComparison.Ordinal));
         Assert.DoesNotContain(checks, check => check.Message.Contains("流水线配置", StringComparison.Ordinal));
+    }
+
+    [Theory]
+    [InlineData("{ \"tools\": null }")]
+    [InlineData("{ \"whisper\": null }")]
+    [InlineData("{ \"llm\": null }")]
+    public void Translate_check_reports_null_configuration_sections_without_throwing(string configuration)
+    {
+        using var temp = new TemporaryDirectory();
+        var configDirectory = Path.Combine(temp.Path, "Config");
+        Directory.CreateDirectory(configDirectory);
+        File.WriteAllText(Path.Combine(configDirectory, "translator.config.json"), configuration);
+        File.WriteAllText(Path.Combine(temp.Path, "pipeline.config.json"), "{}");
+        var diagnostics = new CliDependencyDiagnostics(
+            temp.Path,
+            getEnvironmentVariable: _ => null,
+            commandExists: _ => true,
+            pythonPackagesAvailable: _ => true);
+
+        var checks = diagnostics.Check("translate");
+
+        Assert.Contains(checks, check => !check.IsAvailable && check.Message.Contains("缺少 tools", StringComparison.Ordinal));
     }
 
     private static void WriteConfiguration(string baseDirectory)
