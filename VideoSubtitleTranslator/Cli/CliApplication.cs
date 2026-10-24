@@ -43,6 +43,31 @@ public static class CliApplication
             return Success;
         }
 
+        if (string.Equals(args[0], "doctor", StringComparison.OrdinalIgnoreCase))
+        {
+            if (args.Length == 2 && IsHelp(args[1]))
+            {
+                standardOutput.WriteLine("用法：zimu doctor [download|translate]");
+                standardOutput.WriteLine("检查指定任务所需的本地配置和依赖；不会显示任何凭据值。");
+                return Success;
+            }
+            if (args.Length > 2 || (args.Length == 2 && args[1] is not ("download" or "translate")))
+            {
+                standardError.WriteLine("用法：zimu doctor [download|translate]");
+                return UsageError;
+            }
+
+            Program.LoadEnv();
+            var diagnostics = new CliDependencyDiagnostics(AppContext.BaseDirectory);
+            var checks = diagnostics.Check(args.Length == 2 ? args[1] : null);
+            foreach (var check in checks)
+                standardOutput.WriteLine($"{(check.IsAvailable ? "✓" : "✗")} {check.Message}");
+            standardOutput.WriteLine(checks.All(check => check.IsAvailable)
+                ? "依赖检查通过。"
+                : "请按上述提示安装缺失依赖或补齐配置后重试。");
+            return checks.All(check => check.IsAvailable) ? Success : TranslationError;
+        }
+
         if (string.Equals(args[0], "history", StringComparison.OrdinalIgnoreCase))
         {
             if (workflow is not ICliTaskWorkflow taskWorkflow || args.Length != 1)
@@ -420,6 +445,7 @@ public static class CliApplication
         writer.WriteLine("用法：");
         writer.WriteLine("  zimu translate <URL|视频路径> [--mode standard|meme] [--bilingual] [--burn] [--workspace <目录>]");
         writer.WriteLine("  zimu download <URL>");
+        writer.WriteLine("  zimu doctor [download|translate]");
         writer.WriteLine("  zimu history");
         writer.WriteLine("  zimu resume <任务ID>");
         writer.WriteLine("  zimu --help");
@@ -429,6 +455,7 @@ public static class CliApplication
         writer.WriteLine("  zm translate https://example.com/video");
         writer.WriteLine("  zimu translate https://example.com/video --mode meme");
         writer.WriteLine("  zimu download https://example.com/video");
+        writer.WriteLine("  zimu doctor translate");
     }
 
     internal static string StatusLabel(CliTaskStatus status) => status switch

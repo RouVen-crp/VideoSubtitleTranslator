@@ -1,12 +1,48 @@
 # VideoSubtitleTranslator
 
-**在线视频字幕翻译与本地校对工具。** 下载或导入英文视频，生成中文字幕，在浏览器中逐句校对，再导出字幕或烧录字幕的视频。
+**轻量命令行视频字幕翻译工具。** 用简短命令下载视频、生成中文字幕，或播放已完成的任务。
 
 <p align="center">
-  <a href="https://rouven-crp.github.io/VideoSubtitleTranslator/">在线体验静态演示</a> ·
-  <a href="#本地-web-工作台图形界面">启动本地图形界面</a> ·
-  <a href="#命令行用法">命令行用法</a>
+  <a href="#快速开始">快速开始</a> ·
+  <a href="#依赖检查">依赖检查</a> ·
+  <a href="https://rouven-crp.github.io/VideoSubtitleTranslator/">在线演示</a>
 </p>
+
+## 快速开始
+
+开发环境需要 .NET 10 SDK。按任务运行对应的依赖检查；已安装在系统中的工具可以直接复用，无需重新安装。需要覆盖默认查找位置时，可通过 `VST_FFMPEG_PATH`、`VST_FFPROBE_PATH`、`VST_YTDLP_PATH`、`VST_PYTHON_PATH` 指定可执行文件。
+
+先检查实际任务需要的依赖：
+
+```sh
+zimu doctor download   # 只检查下载器
+zimu doctor translate  # 检查翻译配置、媒体工具、Python/Whisper 和 LLM 环境变量
+```
+
+macOS 可用 Homebrew 安装缺少的系统工具：
+
+```sh
+brew install ffmpeg yt-dlp
+```
+
+翻译还需要 Whisper Python 依赖和 LLM 凭据。若机器已有可用的 Whisper Python 环境，可用 `VST_PYTHON_PATH` 指向它；否则从仓库根目录运行：
+
+```sh
+cd VideoSubtitleTranslator
+./scripts/init_python_venv.sh
+cd ..
+cp VideoSubtitleTranslator/.env.example VideoSubtitleTranslator/.env
+```
+
+在本地 `.env` 或 shell 中设置 `DEEPSEEK_API_KEY`。不要把凭据写入命令历史或提交到仓库。安装包或开发环境提供 `zimu` 和短名 `zm` 两个入口；在仓库根目录开发运行时，可以使用 `dotnet run --project VideoSubtitleTranslator -- ...`：
+
+```sh
+zimu translate <视频链接或本地路径>
+zimu download <视频链接>
+zm translate <视频链接或本地路径>
+```
+
+单独运行 `zimu` 或 `zm` 会打开命令行引导界面。`translate` 需要 FFmpeg/ffprobe、Python/Whisper、翻译配置和 LLM 凭据；URL 输入还会下载视频，因此也需要 `yt-dlp` 和网络。本地视频翻译不需要 `yt-dlp`。`download` 只需要翻译配置、`yt-dlp` 和网络（需要登录的网站可配置 cookies），不需要 Python、Whisper、FFmpeg 或 LLM 凭据。
 
 ## 功能
 
@@ -34,7 +70,7 @@
 
 Windows 可运行仓库提供的安装脚本准备外部工具和 Python 依赖。macOS/Linux 请使用各自的软件包管理器安装 `ffmpeg`、`yt-dlp` 和 Python 3。
 
-## 快速开始
+## Windows 快速开始
 
 以下命令都从仓库根目录运行。
 
@@ -54,27 +90,6 @@ dotnet run --project VideoSubtitleTranslator -- --web
 打开 <http://127.0.0.1:5155>。`.env` 至少需要配置 `DEEPSEEK_API_KEY`。若没有使用 cookies 文件，请从 `.env` 中删除或注释 `COOKIES_FILE` 示例行。
 
 安装脚本通过 `winget` 安装缺失的 `yt-dlp` 和 `ffmpeg`，并安装 `openai-whisper`、`srt`。如果刚安装了外部工具，请重新打开 PowerShell 后再运行应用，让新 `PATH` 生效。脚本默认使用 Windows `py` 启动器；需要重建虚拟环境时可追加 `-RecreateVenv`。
-
-### macOS / Linux
-
-先安装 .NET 10、Python 3、`ffmpeg` 和 `yt-dlp`，然后在仓库根目录运行：
-
-```bash
-# 创建本机配置文件，并编辑 VideoSubtitleTranslator/.env
-cp VideoSubtitleTranslator/.env.example VideoSubtitleTranslator/.env
-
-# 创建 Python 虚拟环境并安装 Whisper 依赖
-cd VideoSubtitleTranslator
-./scripts/init_python_venv.sh
-cd ..
-
-# 启动本地浏览器工作台
-dotnet run --project VideoSubtitleTranslator -- --web
-```
-
-打开 <http://127.0.0.1:5155>。`.env` 至少需要配置 `DEEPSEEK_API_KEY`。没有 cookies 文件时，请删除或注释 `COOKIES_FILE` 示例行。
-
-`init_python_venv.sh` 会在 `VideoSubtitleTranslator/PythonScripts/venv` 创建虚拟环境并安装 Whisper 依赖。可通过 `PYTHON_CMD=/path/to/python` 指定 Python 可执行文件。
 
 ## 本地 Web 工作台（图形界面）
 
@@ -105,7 +120,7 @@ docker compose up --build
 
 ## 命令行用法
 
-命令行可处理在线视频或本地视频。先按上面的步骤准备依赖和 `.env`，然后从仓库根目录运行：
+命令行可处理在线视频或本地视频。先按“快速开始”准备对应任务所需的依赖，然后从仓库根目录运行：
 
 ```powershell
 # 通用翻译模式（默认）
@@ -122,6 +137,10 @@ dotnet run --project VideoSubtitleTranslator -- translate "<视频链接或本�
 
 # 单独下载在线视频
 dotnet run --project VideoSubtitleTranslator -- download "<视频链接>"
+
+# 检查下载或翻译依赖
+dotnet run --project VideoSubtitleTranslator -- doctor download
+dotnet run --project VideoSubtitleTranslator -- doctor translate
 ```
 
 macOS/Linux 命令相同，只需将 PowerShell 示例中的 Windows 输出路径换成 Unix 路径。
@@ -151,6 +170,14 @@ CLI 使用 `yt-dlp` 下载视频；如果网站要求登录，需按 yt-dlp 支�
 `.env` 通过环境变量提供本机密钥和可选路径；该文件已加入 `.gitignore`。配置 API Key 时只需设置 `DEEPSEEK_API_KEY`，配置项 `apiKeyEnv` 指向此环境变量。`COOKIES_FILE` 可选，用于将 cookies 文件路径提供给 yt-dlp；没有该文件时请移除示例配置。
 
 可通过 `VST_FFMPEG_PATH`、`VST_FFPROBE_PATH`、`VST_YTDLP_PATH`、`VST_PYTHON_PATH` 指定外部工具的可执行文件路径。Whisper 默认使用 `turbo` 模型；首次运行可能需要下载模型并等待缓存。
+
+## 依赖检查
+
+运行 `zimu doctor download` 检查下载配置和 `yt-dlp`；运行 `zimu doctor translate` 检查翻译配置、媒体工具、Python/Whisper 和 LLM 所需环境变量，并检查在线翻译需要的 `yt-dlp`（只翻译本地视频时可忽略此项）。诊断只报告环境变量名称和是否已设置，不显示任何凭据值。翻译依赖 `ffmpeg` 与 `ffprobe`；若其中缺失，请安装 FFmpeg 或设置相应的 `VST_*_PATH`。Python 可用但 Whisper 或 `srt` 缺失时，运行 `VideoSubtitleTranslator/scripts/init_python_venv.sh`，或在指定的 Python 环境中安装 `PythonScripts/requirements.txt`。
+
+### macOS 性能测量
+
+目前没有公布 Whisper 总耗时承诺。要为特定机器测量端到端时间，可记录芯片型号、macOS 版本、视频时长与格式、Whisper 模型、模型是否已缓存，以及命令开始和结束时间。连续测量时分别记录首次运行和缓存后的运行，并使用相同视频与设置；不要把下载、模型首次下载或网络等待时间混同为 Whisper 推理时间。
 
 ## 输出文件
 
