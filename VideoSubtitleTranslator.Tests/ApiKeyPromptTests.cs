@@ -1,5 +1,6 @@
 namespace VideoSubtitleTranslator.Tests;
 
+[Collection("Shared runtime configuration")]
 public class ApiKeyPromptTests
 {
     [Fact]
