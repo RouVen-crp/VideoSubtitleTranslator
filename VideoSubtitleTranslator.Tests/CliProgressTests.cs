@@ -7,6 +7,39 @@ namespace VideoSubtitleTranslator.Tests;
 public sealed class CliProgressTests
 {
     [Fact]
+    public void Remote_metadata_lookup_reports_progress_while_waiting_for_yt_dlp()
+    {
+        using var temp = new TemporaryDirectory();
+        var store = new CliTaskStore(Path.Combine(temp.Path, "tasks"));
+        var task = store.Create(new TranslationRequest("https://example.com/video", "standard", temp.Path));
+        var config = new PipelineConfig
+        {
+            Steps =
+            [
+                new PipelineStepConfig { Step = "InitMetadata", Implementation = "MetaGetter" },
+                new PipelineStepConfig { Step = "InitWorkspace", Implementation = "Default" }
+            ]
+        };
+        using var progress = new StringWriter();
+        var executor = new CliPipelineExecutor(
+            store,
+            runStep: (step, context, _) =>
+            {
+                if (step.Step == "InitMetadata") Thread.Sleep(100);
+                if (step.Step == "InitWorkspace") context["WorkspacePath"] = Path.Combine(temp.Path, "video");
+                return context;
+            },
+            progressOutput: progress,
+            progressHeartbeatInterval: TimeSpan.FromMilliseconds(15));
+
+        executor.Execute(config, new Dictionary<string, string>(), new TranslatorRuntimeConfig(), task);
+
+        Assert.Contains("获取视频信息开始", progress.ToString());
+        Assert.Contains("获取视频信息仍在运行，已用时", progress.ToString());
+        Assert.Contains($"任务目录：{Path.Combine(temp.Path, "video")}", progress.ToString());
+    }
+
+    [Fact]
     public async Task Translate_reports_stage_order_elapsed_time_and_truthful_heartbeat_to_progress_output()
     {
         using var temp = new TemporaryDirectory();

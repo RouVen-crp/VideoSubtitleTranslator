@@ -24,6 +24,8 @@ public sealed class CliPipelineExecutor
         });
     }
 
+    public Task<T> RunStageAsync<T>(string stage, Func<Task<T>> action) => _progress.RunAsync(stage, action);
+
     public Dictionary<string, string> Execute(PipelineConfig config, Dictionary<string, string> initialContext,
         TranslatorRuntimeConfig runtime, CliTaskRecord task)
     {
@@ -59,6 +61,8 @@ public sealed class CliPipelineExecutor
                 GlobalRuntimeConfig.Current = runtime;
                 context = _runStep(step, previousContext, runtime);
             });
+            if (step.Step == "InitWorkspace" && context.TryGetValue("WorkspacePath", out var workspacePath))
+                _progress.ReportWorkspace(workspacePath);
             task.Context = new Dictionary<string, string>(context, StringComparer.OrdinalIgnoreCase);
             if (task.Context.TryGetValue("Url", out var savedUrl)) task.Context["Url"] = CliInputSanitizer.Sanitize(savedUrl);
             task.CompletedStages.RemoveAll(name => config.Steps.Skip(index).Any(later =>

@@ -190,7 +190,7 @@ public sealed class CliPlaybackTests
         Assert.Equal(0, exitCode);
         Assert.Contains("现在播放视频", output.ToString());
         Assert.Equal(1, startCount);
-        Assert.Empty(error.ToString());
+        Assert.Contains("正在启动在线翻译任务", error.ToString());
     }
 
     [Fact]

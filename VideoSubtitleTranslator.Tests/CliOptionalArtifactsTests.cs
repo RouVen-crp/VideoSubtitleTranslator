@@ -26,7 +26,7 @@ public sealed class CliOptionalArtifactsTests
         Assert.DoesNotContain(fixture.Config!.Steps, step => step.Step == "BurnSubtitle");
         Assert.Equal(0, mediaInvocations);
         Assert.Contains(Path.GetFullPath(fixture.LastSubtitlePath!), output.ToString());
-        Assert.Empty(error.ToString());
+        Assert.Contains("输出根目录：", error.ToString());
     }
 
     [Fact]
@@ -49,7 +49,7 @@ public sealed class CliOptionalArtifactsTests
         Assert.Equal(0, mediaInvocations);
         Assert.Contains("Hello there\n你好", await File.ReadAllTextAsync(fixture.LastBilingualPath!));
         Assert.Contains(Path.GetFullPath(fixture.LastBilingualPath!), output.ToString());
-        Assert.Empty(error.ToString());
+        Assert.Contains("输出根目录：", error.ToString());
     }
 
     [Fact]
@@ -85,7 +85,29 @@ public sealed class CliOptionalArtifactsTests
         Assert.False(string.IsNullOrWhiteSpace(workingDirectory));
         Assert.Contains(Path.GetFullPath(fixture.LastBurnedPath!), output.ToString());
         Assert.Equal("burned video", await File.ReadAllTextAsync(fixture.LastBurnedPath!));
-        Assert.Empty(error.ToString());
+        Assert.Contains("输出根目录：", error.ToString());
+    }
+
+    [Fact]
+    public async Task Burn_option_reports_progress_while_ffmpeg_is_running()
+    {
+        using var temp = new TemporaryDirectory();
+        var fixture = new PipelineFixture();
+        using var progress = new StringWriter();
+        var workflow = fixture.CreateWorkflow(async (_, args, _, _) =>
+        {
+            await Task.Delay(100);
+            File.WriteAllText(args[^1], "burned video");
+            return 0;
+        }, progress, TimeSpan.FromMilliseconds(15));
+        using var output = new StringWriter();
+        using var error = new StringWriter();
+
+        var exit = await RunLocalTranslation(temp, workflow, output, error, "--burn");
+
+        Assert.Equal(0, exit);
+        Assert.Contains("烧录字幕视频开始", progress.ToString());
+        Assert.Contains("烧录字幕视频仍在运行，已用时", progress.ToString());
     }
 
     [Fact]
@@ -114,7 +136,7 @@ public sealed class CliOptionalArtifactsTests
         Assert.Contains("subtitle.ass", arguments![Array.IndexOf(arguments.ToArray(), "-vf") + 1]);
         Assert.Contains("cultural dual track", subtitleContentsSeenByFfmpeg);
         Assert.False(string.IsNullOrWhiteSpace(workingDirectory));
-        Assert.Empty(error.ToString());
+        Assert.Contains("输出根目录：", error.ToString());
     }
 
     [Fact]
@@ -143,8 +165,8 @@ public sealed class CliOptionalArtifactsTests
         Assert.NotEqual(firstBurned, fixture.LastBurnedPath);
         Assert.Contains("Hello there\n你好", await File.ReadAllTextAsync(firstBilingual));
         Assert.Equal("burned video", await File.ReadAllTextAsync(firstBurned));
-        Assert.Empty(firstError.ToString());
-        Assert.Empty(secondError.ToString());
+        Assert.Contains("输出根目录：", firstError.ToString());
+        Assert.Contains("输出根目录：", secondError.ToString());
     }
 
     private static Task<int> RunLocalTranslation(
@@ -169,7 +191,9 @@ public sealed class CliOptionalArtifactsTests
         public string? LastBurnedPath { get; private set; }
 
         public PipelineTranslationWorkflow CreateWorkflow(
-            Func<string, IReadOnlyList<string>, string, CancellationToken, Task<int>> mediaProcessRunner)
+            Func<string, IReadOnlyList<string>, string, CancellationToken, Task<int>> mediaProcessRunner,
+            TextWriter? progressOutput = null,
+            TimeSpan? progressHeartbeatInterval = null)
         {
             return new PipelineTranslationWorkflow(
                 (_, _) => Task.FromResult<string?>(null),
@@ -189,7 +213,9 @@ public sealed class CliOptionalArtifactsTests
                     LastBurnedPath = Path.Combine(context["WorkspacePath"], "burned_video.mp4");
                     return context;
                 },
-                mediaProcessRunner);
+                mediaProcessRunner,
+                progressOutput: progressOutput,
+                progressHeartbeatInterval: progressHeartbeatInterval);
         }
     }
 

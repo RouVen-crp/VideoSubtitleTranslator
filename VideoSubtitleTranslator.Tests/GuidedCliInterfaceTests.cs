@@ -61,7 +61,8 @@ public sealed class GuidedCliInterfaceTests
         Assert.Contains("现在播放视频并加载中文字幕？[y/N]", output.ToString());
         Assert.Contains("y 播放 | Enter 返回 | Q 退出", output.ToString());
         Assert.Contains($"中文字幕：{Path.Combine(temp.Path, "translated.srt")}", output.ToString());
-        Assert.Equal(0, error.GetStringBuilder().Length);
+        Assert.Contains("正在启动在线翻译任务", error.ToString());
+        Assert.Contains($"输出根目录：{workflow.LastRequest?.WorkspaceRoot}", error.ToString());
     }
 
     [Fact]
@@ -70,7 +71,8 @@ public sealed class GuidedCliInterfaceTests
         using var temp = new TemporaryDirectory();
         var task = new CliTaskRecord
         {
-            Id = "a1b2c3d4", Input = "https://example.com/video", Status = CliTaskStatus.Interrupted, Stage = "Translate"
+            Id = "a1b2c3d4", Input = "https://example.com/video", Status = CliTaskStatus.Interrupted, Stage = "Translate",
+            CreatedAt = new DateTimeOffset(2026, 10, 26, 10, 15, 30, TimeSpan.Zero)
         };
         var terminal = new FakeTerminal(
             [ConsoleKey.DownArrow, ConsoleKey.DownArrow, ConsoleKey.Enter, ConsoleKey.Enter, ConsoleKey.Enter, ConsoleKey.Enter, ConsoleKey.Enter, ConsoleKey.Escape, ConsoleKey.Q]);
@@ -82,6 +84,7 @@ public sealed class GuidedCliInterfaceTests
 
         Assert.Equal(0, result);
         Assert.Equal(1, workflow.ResumeCount);
+        Assert.Contains(task.CreatedAt.ToLocalTime().ToString("yyyy-MM-dd HH:mm:ss zzz"), output.ToString());
         Assert.Contains("可能会重新执行并产生费用", error.ToString());
         Assert.Contains("恢复完成", output.ToString());
         Assert.Contains("P 播放 | Enter 返回 | Q 退出", output.ToString());

@@ -217,7 +217,7 @@ public sealed class GuidedCliInterface
                 var rows = tasks.Select(task =>
                 {
                     var queuePosition = task.QueuePosition is int position ? $"队列第 {position} 位 " : string.Empty;
-                    return $"{task.Id}  {CliApplication.StatusLabel(task.Status),-6} {queuePosition}{task.Stage,-12} {CliInputSanitizer.Sanitize(task.Input)}";
+                    return $"{task.Id}  {CliApplication.FormatTaskCreatedAt(task.CreatedAt)}  {CliApplication.StatusLabel(task.Status),-6} {queuePosition}{task.Stage,-12} {CliInputSanitizer.Sanitize(task.Input)}";
                 }).ToArray();
                 Draw("任务历史", rows, selection, MenuFooter);
                 var key = _terminal.ReadKey().Key;

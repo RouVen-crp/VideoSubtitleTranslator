@@ -346,7 +346,8 @@ public sealed class PipelineTranslationWorkflow : ICliWorkflow, ICliTaskWorkflow
             : null;
         var burnSubtitlePath = File.Exists(dirs.DualSubtitlePath) ? dirs.DualSubtitlePath : subtitlePath;
         var burnedPath = request.BurnSubtitles
-            ? await BurnVideoAsync(dirs.VideoPath, burnSubtitlePath, dirs.CustomPath(""), config, cancellationToken)
+            ? await _taskPipelineExecutor.RunStageAsync("BurnSubtitle",
+                () => BurnVideoAsync(dirs.VideoPath, burnSubtitlePath, dirs.CustomPath(""), config, cancellationToken))
             : null;
 
         return new TranslationResult(subtitlePath, BilingualSubtitlePath: bilingualPath, BurnedVideoPath: burnedPath);

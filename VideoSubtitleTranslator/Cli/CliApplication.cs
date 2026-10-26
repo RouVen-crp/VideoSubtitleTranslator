@@ -1,3 +1,6 @@
+using System.Globalization;
+using VideoSubtitleTranslator.Pipeline;
+
 namespace VideoSubtitleTranslator.Cli;
 
 public static class CliApplication
@@ -33,13 +36,13 @@ public static class CliApplication
             }
 
             standardError.WriteLine("未提供命令。请先运行以下命令：");
-            WriteHelp(standardError);
+            WriteHelp(standardError, currentDirectory);
             return UsageError;
         }
 
         if (args.Length == 1 && IsHelp(args[0]))
         {
-            WriteHelp(standardOutput);
+            WriteHelp(standardOutput, currentDirectory);
             return Success;
         }
 
@@ -79,9 +82,9 @@ public static class CliApplication
             if (tasks.Count == 0) standardOutput.WriteLine("暂无翻译任务。");
             else
             {
-                standardOutput.WriteLine("ID       状态       队列位置 阶段         输入");
+                standardOutput.WriteLine("ID       状态       队列位置 创建时间（本地）               阶段         输入");
                 foreach (var task in tasks)
-                    standardOutput.WriteLine($"{task.Id}  {StatusLabel(task.Status),-8} {task.QueuePosition?.ToString() ?? "-",-8} {task.Stage,-12} {CliInputSanitizer.Sanitize(task.Input)}");
+                    standardOutput.WriteLine($"{task.Id}  {StatusLabel(task.Status),-8} {task.QueuePosition?.ToString() ?? "-",-8} {FormatTaskCreatedAt(task.CreatedAt),-26} {task.Stage,-12} {CliInputSanitizer.Sanitize(task.Input)}");
             }
             standardOutput.WriteLine("提示：zimu resume <ID> 恢复失败或中断的任务；--help 查看命令。");
             return Success;
@@ -159,14 +162,14 @@ public static class CliApplication
         {
             if (args.Length == 2 && IsHelp(args[1]))
             {
-                WriteDownloadHelp(standardOutput);
+                WriteDownloadHelp(standardOutput, currentDirectory);
                 return Success;
             }
 
             if (!TryParseDownload(args[1..], currentDirectory, out var downloadRequest, out var downloadError))
             {
                 standardError.WriteLine(downloadError);
-                WriteDownloadHelp(standardError);
+                WriteDownloadHelp(standardError, currentDirectory);
                 return UsageError;
             }
 
@@ -202,25 +205,31 @@ public static class CliApplication
         if (!string.Equals(args[0], "translate", StringComparison.OrdinalIgnoreCase))
         {
             standardError.WriteLine("未知命令。");
-            WriteHelp(standardError);
+            WriteHelp(standardError, currentDirectory);
             return UsageError;
         }
 
         if (args.Length == 2 && IsHelp(args[1]))
         {
-            WriteTranslateHelp(standardOutput);
+            WriteTranslateHelp(standardOutput, currentDirectory);
             return Success;
         }
 
         if (!TryParseTranslate(args[1..], currentDirectory, out var request, out var error))
         {
             standardError.WriteLine(error);
-            WriteTranslateHelp(standardError);
+            WriteTranslateHelp(standardError, currentDirectory);
             return UsageError;
         }
 
         try
         {
+            standardError.WriteLine(request!.IsLocalFile
+                ? $"正在启动本地翻译任务（{request.Mode}）。"
+                : $"正在启动在线翻译任务（{request.Mode}）；先获取视频信息，再下载视频。");
+            standardError.WriteLine($"输出根目录：{request.WorkspaceRoot}");
+            standardError.WriteLine("视频和字幕保存在该目录下按视频标题创建的任务子目录。");
+            standardError.Flush();
             var result = await workflow.TranslateAsync(request!, cancellationToken);
             if (string.IsNullOrWhiteSpace(result.SubtitlePath) || !File.Exists(result.SubtitlePath))
             {
@@ -294,6 +303,11 @@ public static class CliApplication
             standardError.WriteLine(exception.Message);
             return TranslationError;
         }
+        catch (PipelineStageFailureException exception)
+        {
+            standardError.WriteLine($"翻译失败：{exception.Message}");
+            return TranslationError;
+        }
         catch (Exception)
         {
             // External tool and model exceptions can contain request details. Keep CLI diagnostics
@@ -302,6 +316,9 @@ public static class CliApplication
             return TranslationError;
         }
     }
+
+    internal static string FormatTaskCreatedAt(DateTimeOffset createdAt) =>
+        createdAt.ToLocalTime().ToString("yyyy-MM-dd HH:mm:ss zzz", CultureInfo.InvariantCulture);
 
     private static bool TryParseDownload(
         string[] args,
@@ -438,7 +455,7 @@ public static class CliApplication
 
     private static bool IsHelp(string value) => value is "--help" or "-h";
 
-    private static void WriteHelp(TextWriter writer)
+    private static void WriteHelp(TextWriter writer, string currentDirectory)
     {
         writer.WriteLine("zimu - 轻量视频字幕翻译工具");
         writer.WriteLine();
@@ -448,14 +465,20 @@ public static class CliApplication
         writer.WriteLine("  zimu doctor [download|translate]");
         writer.WriteLine("  zimu history");
         writer.WriteLine("  zimu resume <任务ID>");
+        writer.WriteLine("  zimu play <任务ID>");
         writer.WriteLine("  zimu --help");
+        writer.WriteLine();
+        WriteTranslateArguments(writer, currentDirectory);
+        writer.WriteLine("下载参数：");
+        writer.WriteLine("  <URL>               必填；HTTP 或 HTTPS 视频链接。仅下载视频，不转录或翻译。");
+        writer.WriteLine($"  默认下载目录：{Program.ResolveDefaultWorkspace(currentDirectory)}");
         writer.WriteLine();
         writer.WriteLine("示例：");
         writer.WriteLine("  zimu translate https://example.com/video");
-        writer.WriteLine("  zm translate https://example.com/video");
-        writer.WriteLine("  zimu translate https://example.com/video --mode meme");
+        writer.WriteLine("  zimu translate \"./lesson.mp4\" --mode meme");
+        writer.WriteLine("  zimu translate \"./lesson.mp4\" --bilingual --burn --workspace \"./output\"");
         writer.WriteLine("  zimu download https://example.com/video");
-        writer.WriteLine("  zimu doctor translate");
+        writer.WriteLine("  zimu translate --help  查看翻译命令的详细示例");
     }
 
     internal static string StatusLabel(CliTaskStatus status) => status switch
@@ -464,20 +487,39 @@ public static class CliApplication
         CliTaskStatus.Failed => "失败", CliTaskStatus.Interrupted => "已中断", _ => "未知"
     };
 
-    private static void WriteDownloadHelp(TextWriter writer)
+    private static void WriteDownloadHelp(TextWriter writer, string currentDirectory)
     {
         writer.WriteLine("用法：zimu download <URL>");
+        writer.WriteLine("<URL> 必填，需为 HTTP 或 HTTPS 视频链接。");
         writer.WriteLine("示例：zimu download https://example.com/video");
-        writer.WriteLine("下载在线视频，不执行转录或翻译。视频保存在默认工作区目录。");
+        writer.WriteLine("下载在线视频，不执行转录或翻译。");
+        writer.WriteLine($"默认下载目录：{Program.ResolveDefaultWorkspace(currentDirectory)}");
     }
 
-    private static void WriteTranslateHelp(TextWriter writer)
+    private static void WriteTranslateHelp(TextWriter writer, string currentDirectory)
     {
         writer.WriteLine("用法：zimu translate <URL|视频路径> [--mode standard|meme] [--bilingual] [--burn] [--workspace <目录>]");
-        writer.WriteLine("示例：zimu translate https://example.com/video");
-        writer.WriteLine("示例：zimu translate ./lesson.mp4");
-        writer.WriteLine("默认英文翻译为中文，字幕以 SRT 文件交付，不烧录到视频。");
-        writer.WriteLine("可选：--bilingual 生成英中双语 SRT；--burn 生成烧录字幕的视频。");
+        writer.WriteLine();
+        WriteTranslateArguments(writer, currentDirectory);
+        writer.WriteLine("默认从英文音频识别并翻译为中文，生成中文字幕 SRT；不烧录视频。");
+        writer.WriteLine();
+        writer.WriteLine("示例：");
+        writer.WriteLine("  zimu translate https://example.com/video");
+        writer.WriteLine("  zimu translate \"./lesson.mp4\" --mode meme");
+        writer.WriteLine("  zimu translate \"./lesson.mp4\" --bilingual --burn --workspace \"./output\"");
+    }
+
+    private static void WriteTranslateArguments(TextWriter writer, string currentDirectory)
+    {
+        writer.WriteLine("翻译参数：");
+        writer.WriteLine("  <URL|视频路径>      必填；HTTP(S) 视频链接或本地视频文件，路径有空格时请加引号。");
+        writer.WriteLine("  --mode <模式>       standard（默认）：通用翻译并自动校对；meme：口语化翻译和文化注释。");
+        writer.WriteLine("  --bilingual        额外生成英中双语 SRT 文件。");
+        writer.WriteLine("  --burn             额外生成烧录字幕的视频；不指定时不烧录视频。");
+        writer.WriteLine("  --workspace <目录>  指定任务输出根目录；省略时按当前工作目录使用默认工作区。");
+        writer.WriteLine($"  默认输出根目录：{Program.ResolveDefaultWorkspace(currentDirectory)}");
+        writer.WriteLine("  视频和字幕保存在该目录下按视频标题创建的任务子目录。");
+        writer.WriteLine();
     }
 
     private static void WritePlayHelp(TextWriter writer)

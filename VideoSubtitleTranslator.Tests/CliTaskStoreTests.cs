@@ -98,7 +98,8 @@ public sealed class CliTaskStoreTests
     public async Task History_lists_persisted_task_and_resume_warns_about_repeated_model_cost()
     {
         using var temp = new TemporaryDirectory();
-        var task = new CliTaskRecord { Id = "a1b2c3d4", Input = "https://example.com/video", Status = CliTaskStatus.Interrupted, Stage = "Translate" };
+        var createdAt = new DateTimeOffset(2026, 10, 26, 10, 15, 30, TimeSpan.Zero);
+        var task = new CliTaskRecord { Id = "a1b2c3d4", Input = "https://example.com/video", Status = CliTaskStatus.Interrupted, Stage = "Translate", CreatedAt = createdAt };
         var workflow = new FakeTaskWorkflow(task, Path.Combine(temp.Path, "translated.srt"));
         using var output = new StringWriter();
         using var error = new StringWriter();
@@ -107,6 +108,8 @@ public sealed class CliTaskStoreTests
         Assert.Equal(0, historyExit);
         Assert.Contains("a1b2c3d4", output.ToString());
         Assert.Contains("已中断", output.ToString());
+        Assert.Contains("创建时间（本地）", output.ToString());
+        Assert.Contains(createdAt.ToLocalTime().ToString("yyyy-MM-dd HH:mm:ss zzz"), output.ToString());
 
         output.GetStringBuilder().Clear();
         error.GetStringBuilder().Clear();

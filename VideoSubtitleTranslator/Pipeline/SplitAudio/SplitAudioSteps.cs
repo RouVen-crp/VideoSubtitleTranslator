@@ -22,15 +22,28 @@ public sealed class DefaultSplitAudioStep : SplitAudioStepBase
 {
     private static void Split(WorkDirs dirs)
     {
-        if (File.Exists(dirs.AudioPath))
+        if (File.Exists(dirs.AudioPath) && new FileInfo(dirs.AudioPath).Length > 0)
         {
             Console.WriteLine("Audio exists, skip split");
             return;
         }
+        if (File.Exists(dirs.AudioPath)) File.Delete(dirs.AudioPath);
 
-        using var process = Process.Start(GlobalRuntimeConfig.Current.Tools.FfmpegPath,
-            $"-i {dirs.VideoPath} -vn -acodec pcm_s16le -ar 44100 {dirs.AudioPath}");
-        process?.WaitForExit();
+        var startInfo = new ProcessStartInfo
+        {
+            FileName = GlobalRuntimeConfig.Current.Tools.FfmpegPath,
+            UseShellExecute = false
+        };
+        foreach (var argument in new[] { "-i", dirs.VideoPath, "-vn", "-acodec", "pcm_s16le", "-ar", "44100", dirs.AudioPath })
+            startInfo.ArgumentList.Add(argument);
+
+        using var process = Process.Start(startInfo);
+        if (process is null) throw new PipelineStageFailureException("无法启动 ffmpeg 音频提取进程。");
+        process.WaitForExit();
+        if (process.ExitCode != 0)
+            throw new PipelineStageFailureException($"ffmpeg 音频提取失败（exit code {process.ExitCode}）。请确认视频已下载且 ffmpeg 可用。");
+        if (!File.Exists(dirs.AudioPath) || new FileInfo(dirs.AudioPath).Length == 0)
+            throw new PipelineStageFailureException("ffmpeg 未生成音频文件；请确认输入视频有效。");
     }
 
     public override Dictionary<string, string> Execute(Dictionary<string, string> context)

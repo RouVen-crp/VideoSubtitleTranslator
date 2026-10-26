@@ -4,8 +4,17 @@ import subprocess
 import sys
 import time
 from pathlib import Path
-import srt
 from datetime import timedelta
+
+try:
+    import srt
+except ImportError:
+    print(
+        "Python 环境缺少 srt 依赖。请运行项目或发布目录中的 scripts/init_python_venv.sh，"
+        "并通过 VST_PYTHON_PATH 指向该虚拟环境的 Python。",
+        file=sys.stderr,
+    )
+    raise SystemExit(1)
 
 try:
     import whisper as openai_whisper

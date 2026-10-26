@@ -108,15 +108,7 @@ internal sealed class CliDependencyDiagnostics
         if (!string.IsNullOrWhiteSpace(overridePath)) return overridePath.Trim().Trim('"');
         if (!configuredPython.Equals("python3", StringComparison.OrdinalIgnoreCase) &&
             !configuredPython.Equals("python", StringComparison.OrdinalIgnoreCase)) return configuredPython;
-
-        var scriptsDirectory = DefaultExtractSubtitleStep.ResolvePythonScriptsDirectory(_baseDirectory);
-        var candidates = new[]
-        {
-            Path.Combine(scriptsDirectory, "venv", "bin", "python3"),
-            Path.Combine(scriptsDirectory, "venv", "Scripts", "python.exe"),
-            configuredPython
-        };
-        return candidates.FirstOrDefault(_commandExists) ?? configuredPython;
+        return DefaultExtractSubtitleStep.ResolvePythonExecutable(configuredPython, _baseDirectory);
     }
 
     private string ResolveEnvironmentOverride(string variableName, string fallback)

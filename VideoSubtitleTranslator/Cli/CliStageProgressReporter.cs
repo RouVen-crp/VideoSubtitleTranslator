@@ -14,6 +14,8 @@ public sealed class CliStageProgressReporter
         _heartbeatInterval = heartbeatInterval ?? TimeSpan.FromSeconds(15);
     }
 
+    public void ReportWorkspace(string path) => Write($"进度：任务目录：{path}");
+
     public void Run(string stage, Action action)
     {
         var label = Label(stage);
@@ -49,6 +51,38 @@ public sealed class CliStageProgressReporter
         Write($"进度：{label}完成，已用时 {Format(elapsed.Elapsed)}");
     }
 
+    public async Task<T> RunAsync<T>(string stage, Func<Task<T>> action)
+    {
+        var label = Label(stage);
+        if (label is null) return await action();
+
+        var elapsed = Stopwatch.StartNew();
+        Write($"进度：{label}开始");
+        var finished = 0;
+        using var timer = _heartbeatInterval > TimeSpan.Zero
+            ? new Timer(_ =>
+            {
+                if (Volatile.Read(ref finished) == 0)
+                    Write($"进度：{label}仍在运行，已用时 {Format(elapsed.Elapsed)}");
+            }, null, _heartbeatInterval, _heartbeatInterval)
+            : null;
+        try
+        {
+            var result = await action();
+            Volatile.Write(ref finished, 1);
+            timer?.Dispose();
+            Write($"进度：{label}完成，已用时 {Format(elapsed.Elapsed)}");
+            return result;
+        }
+        catch
+        {
+            Volatile.Write(ref finished, 1);
+            timer?.Dispose();
+            Write($"进度：{label}失败，已用时 {Format(elapsed.Elapsed)}");
+            throw;
+        }
+    }
+
     private void Write(string message)
     {
         lock (_writeLock)
@@ -63,6 +97,7 @@ public sealed class CliStageProgressReporter
 
     private static string? Label(string stage) => stage switch
     {
+        "InitMetadata" => "获取视频信息",
         "Download" => "下载视频",
         "SplitAudio" => "提取音频",
         "ExtractSubtitle" => "加载 Whisper 模型并转录字幕",
@@ -72,6 +107,7 @@ public sealed class CliStageProgressReporter
         "ProofreadSubtitle" => "自动校对字幕",
         "CulturalAnnotate" => "生成文化注释",
         "BuildDualSubtitle" => "生成双语字幕",
+        "BurnSubtitle" => "烧录字幕视频",
         _ => null
     };
 }
