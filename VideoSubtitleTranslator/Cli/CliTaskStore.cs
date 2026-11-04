@@ -31,6 +31,9 @@ public sealed class CliTaskRecord
     public List<string> CompletedStages { get; set; } = new();
 }
 
+/// <summary>任务历史目录或任务文件不可写（通常是用户配置目录受限）。</summary>
+public sealed class TaskStoreUnavailableException(string message) : Exception(message);
+
 public sealed class CliTaskStore
 {
     private static readonly object CreateLock = new();
@@ -40,15 +43,45 @@ public sealed class CliTaskStore
 
     public CliTaskStore(string? directory = null, Func<int, bool>? isProcessAlive = null)
     {
-        _directory = directory ?? Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData), "zimu", "tasks");
+        _directory = directory ?? ResolveDefaultDirectory();
         _isProcessAlive = isProcessAlive ?? (pid => { try { return System.Diagnostics.Process.GetProcessById(pid) is { HasExited: false }; } catch { return false; } });
+    }
+
+    /// <summary>
+    /// 任务历史默认保存在用户本地应用数据目录；<c>VST_TASK_DIR</c> 可覆盖它，
+    /// 用于用户配置目录不可写（或需要把历史放进指定目录）的环境。
+    /// </summary>
+    public static string ResolveDefaultDirectory()
+    {
+        var overrideDirectory = Environment.GetEnvironmentVariable("VST_TASK_DIR");
+        if (!string.IsNullOrWhiteSpace(overrideDirectory))
+        {
+            return Path.GetFullPath(overrideDirectory);
+        }
+
+        return Path.Combine(
+            Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData), "zimu", "tasks");
+    }
+
+    private void EnsureDirectory()
+    {
+        try
+        {
+            Directory.CreateDirectory(_directory);
+        }
+        catch (Exception exception) when (exception is UnauthorizedAccessException or IOException)
+        {
+            throw new TaskStoreUnavailableException(
+                $"无法写入任务目录：{_directory}（{exception.Message}）。" +
+                "请把环境变量 VST_TASK_DIR 指向一个可写目录后重试。");
+        }
     }
 
     public CliTaskRecord Create(TranslationRequest request)
     {
         lock (CreateLock)
         {
-            Directory.CreateDirectory(_directory);
+            EnsureDirectory();
             var nextQueueOrder = ReadQueueOrderMaximum() + 1;
             var task = new CliTaskRecord
             {
@@ -64,12 +97,21 @@ public sealed class CliTaskStore
 
     public void Save(CliTaskRecord task)
     {
-        Directory.CreateDirectory(_directory);
+        EnsureDirectory();
         task.UpdatedAt = DateTimeOffset.UtcNow;
         var path = GetPath(task.Id);
         var temp = path + ".tmp";
-        File.WriteAllText(temp, JsonSerializer.Serialize(task, JsonOptions));
-        File.Move(temp, path, overwrite: true);
+        try
+        {
+            File.WriteAllText(temp, JsonSerializer.Serialize(task, JsonOptions));
+            File.Move(temp, path, overwrite: true);
+        }
+        catch (Exception exception) when (exception is UnauthorizedAccessException or IOException)
+        {
+            throw new TaskStoreUnavailableException(
+                $"无法写入任务文件：{path}（{exception.Message}）。" +
+                "请把环境变量 VST_TASK_DIR 指向一个可写目录后重试。");
+        }
     }
 
     public CliTaskRecord? Get(string id)

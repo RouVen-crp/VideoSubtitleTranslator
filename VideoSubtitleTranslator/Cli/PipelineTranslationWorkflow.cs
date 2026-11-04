@@ -453,9 +453,10 @@ public sealed class PipelineTranslationWorkflow : ICliWorkflow, ICliTaskWorkflow
 
     private static string GetAvailableWorkspacePath(string workspaceRoot, string title)
     {
-        var candidate = Path.Combine(workspaceRoot, title);
+        var safeTitle = WorkspaceNaming.ToSafeDirectoryName(title);
+        var candidate = Path.Combine(workspaceRoot, safeTitle);
         for (var suffix = 2; Directory.Exists(candidate); suffix++)
-            candidate = Path.Combine(workspaceRoot, $"{title}_{suffix}");
+            candidate = Path.Combine(workspaceRoot, $"{safeTitle}_{suffix}");
         return candidate;
     }
 

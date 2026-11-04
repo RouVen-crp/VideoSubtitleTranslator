@@ -228,6 +228,8 @@ CLI 使用 `yt-dlp` 下载视频；视频链接同时带有播放列表参数时
 
 可通过 `VST_FFMPEG_PATH`、`VST_FFPROBE_PATH`、`VST_YTDLP_PATH`、`VST_PYTHON_PATH` 指定外部工具的可执行文件路径。Whisper 默认使用 `turbo` 模型；首次运行可能需要下载模型并等待缓存。
 
+任务历史默认写到用户配置目录（Windows 为 `%LOCALAPPDATA%\zimu\tasks`，macOS/Linux 为 `~/.local/share/zimu/tasks`）。该目录不可写时，用 `VST_TASK_DIR` 指向一个可写目录；`zimu translate` 也会直接提示这一点。
+
 ## 依赖检查
 
 运行 `zimu doctor download` 检查下载配置和 `yt-dlp`；运行 `zimu doctor translate` 检查翻译配置、媒体工具、Python/Whisper 和 LLM 所需环境变量。在线翻译还需要 `yt-dlp`，可用 `zimu doctor download` 单独检查；本地视频翻译不需要下载器。诊断只报告环境变量名称和是否已设置，不显示任何凭据值。翻译依赖 `ffmpeg` 与 `ffprobe`；若其中缺失，请安装 FFmpeg 或设置相应的 `VST_*_PATH`。Python 可用但 Whisper 或 `srt` 缺失时，运行 `VideoSubtitleTranslator/scripts/init_python_venv.sh`，或在指定的 Python 环境中安装 `PythonScripts/requirements.txt`。

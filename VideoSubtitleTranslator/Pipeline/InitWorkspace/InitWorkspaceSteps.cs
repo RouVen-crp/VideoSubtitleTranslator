@@ -1,5 +1,4 @@
 using System.Collections.Generic;
-using System.Text.RegularExpressions;
 
 namespace VideoSubtitleTranslator.Pipeline;
 
@@ -34,10 +33,7 @@ public sealed class DefaultInitWorkspaceStep : InitWorkspaceStepBase
             return context;
         }
 
-        var safeTitle = Regex.Replace(title, @"\s", "_");
-        safeTitle = Regex.Replace(safeTitle, "\"", "");
-        safeTitle = Regex.Replace(safeTitle, ",", "");
-        safeTitle = Regex.Replace(safeTitle, "'", "");
+        var safeTitle = WorkspaceNaming.ToSafeDirectoryName(title);
         var workspacePath = Path.Combine(root, safeTitle);
         if (context.TryGetValue("AvoidWorkspaceOverwrite", out var avoidOverwrite) &&
             string.Equals(avoidOverwrite, "true", StringComparison.OrdinalIgnoreCase))

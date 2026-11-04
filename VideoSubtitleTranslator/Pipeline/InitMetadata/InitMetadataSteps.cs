@@ -24,7 +24,7 @@ public abstract class InitMetadataStepBase : IPipelineStep
 [PipelineStep("InitMetadata", Implementation = "MetaGetter")]
 public sealed class MetaGetterInitMetadataStep : InitMetadataStepBase
 {
-    private static (string title, string ext, string author, string uploadDate) GetVideoMetadata(string url)
+    private static ProcessStartInfo CreateStartInfo(string url, bool includeCookies)
     {
         var startInfo = new ProcessStartInfo
         {
@@ -37,30 +37,65 @@ public sealed class MetaGetterInitMetadataStep : InitMetadataStepBase
         };
         foreach (var argument in new[] { "--no-playlist", "--js-runtimes", "node", "--dump-json", url })
             startInfo.ArgumentList.Add(argument);
-        var cookiesFile = Environment.GetEnvironmentVariable("COOKIES_FILE");
-        if (!string.IsNullOrWhiteSpace(cookiesFile) && File.Exists(cookiesFile))
+
+        if (includeCookies)
         {
-            startInfo.ArgumentList.Add("--cookies");
-            startInfo.ArgumentList.Add(cookiesFile);
-        }
-        else if (!string.IsNullOrWhiteSpace(GlobalRuntimeConfig.Current.CookiesFromBrowser))
-        {
-            startInfo.ArgumentList.Add("--cookies-from-browser");
-            startInfo.ArgumentList.Add(GlobalRuntimeConfig.Current.CookiesFromBrowser);
+            foreach (var argument in YtDlpCookieArguments.Build().Arguments)
+                startInfo.ArgumentList.Add(argument);
         }
 
-        using var process = new Process();
-        process.StartInfo = startInfo;
-        process.Start();
+        return startInfo;
+    }
 
-        var jsonTask = process.StandardOutput.ReadToEndAsync();
-        var errorTask = process.StandardError.ReadToEndAsync();
-        process.WaitForExit();
-        Task.WaitAll(jsonTask, errorTask);
-        var jsonOutput = jsonTask.Result;
+    private static (string title, string ext, string author, string uploadDate) GetVideoMetadata(string url)
+    {
+        // 浏览器 cookies 只是可选鉴权：浏览器运行时 yt-dlp 复制不了 cookie 数据库，
+        // 带 cookies 会直接失败，这时必须去掉 cookies 再试，而不是让任务失败。
+        // 元数据查询还会走网络，偶发的代理/限流抖动也不应该让整条流水线失败。
+        var usedCookies = YtDlpCookieArguments.Build().UsedCookies;
+        var includeCookieVariants = usedCookies ? new[] { true, false } : new[] { false };
+        const int attemptsPerVariant = 2;
 
-        if (process.ExitCode != 0)
-            throw new PipelineStageFailureException($"yt-dlp 获取视频信息失败（exit code {process.ExitCode}）。请检查链接、网络和 yt-dlp 配置。");
+        foreach (var includeCookies in includeCookieVariants)
+        {
+            for (var attempt = 1; attempt <= attemptsPerVariant; attempt++)
+            {
+                using var process = new Process { StartInfo = CreateStartInfo(url, includeCookies) };
+                process.Start();
+
+                // 同时读两个流，避免任一管道写满时互相阻塞。
+                var jsonTask = process.StandardOutput.ReadToEndAsync();
+                var errorTask = process.StandardError.ReadToEndAsync();
+                process.WaitForExit();
+                Task.WaitAll(jsonTask, errorTask);
+
+                if (!string.IsNullOrEmpty(errorTask.Result))
+                    Console.Error.WriteLine("yt-dlp metadata lookup returned diagnostic output.");
+
+                if (process.ExitCode == 0 && TryParseMetadata(jsonTask.Result, out var metadata))
+                {
+                    return metadata;
+                }
+
+                Console.Error.WriteLine(
+                    $"yt-dlp 获取视频信息失败（第 {attempt}/{attemptsPerVariant} 次，cookies={includeCookies}，exit code {process.ExitCode}）。");
+                if (attempt < attemptsPerVariant)
+                    Thread.Sleep(TimeSpan.FromSeconds(attempt));
+            }
+        }
+
+        throw new PipelineStageFailureException("yt-dlp 未能返回有效的视频信息；请确认链接可访问，并检查网络与 yt-dlp 配置。");
+    }
+
+    private static bool TryParseMetadata(
+        string jsonOutput,
+        out (string title, string ext, string author, string uploadDate) metadata)
+    {
+        metadata = (string.Empty, string.Empty, string.Empty, string.Empty);
+        if (string.IsNullOrWhiteSpace(jsonOutput))
+        {
+            return false;
+        }
 
         try
         {
@@ -85,11 +120,12 @@ public sealed class MetaGetterInitMetadataStep : InitMetadataStepBase
                 ? uploadDataProp.GetString() ?? ""
                 : "";
 
-            return (title, ext, author, uploadDate);
+            metadata = (title, ext, author, uploadDate);
+            return true;
         }
         catch (JsonException)
         {
-            throw new PipelineStageFailureException("yt-dlp 未返回有效的视频信息；请更新 yt-dlp 并检查链接。");
+            return false;
         }
     }
 
