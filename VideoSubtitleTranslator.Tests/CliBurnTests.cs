@@ -50,6 +50,71 @@ public sealed class CliBurnTests
     }
 
     [Fact]
+    public async Task Burn_uses_the_ass_filter_for_dual_track_subtitles()
+    {
+        using var temp = new TemporaryDirectory();
+        var store = new CliTaskStore(Path.Combine(temp.Path, "tasks"));
+        var workspace = Path.Combine(temp.Path, "meme");
+        Directory.CreateDirectory(workspace);
+        File.WriteAllText(Path.Combine(workspace, "video.webm"), "video");
+        File.WriteAllText(Path.Combine(workspace, "dual_subtitle.ass"), "[Script Info]\n");
+        var task = store.Create(new TranslationRequest("https://example.com/video", "meme", temp.Path));
+        task.Status = CliTaskStatus.Completed;
+        task.WorkspacePath = workspace;
+        task.Context["VideoExt"] = ".webm";
+        store.Save(task);
+
+        IReadOnlyList<string>? arguments = null;
+        var workflow = new PipelineTranslationWorkflow(
+            mediaProcessRunner: (_, args, _, _) =>
+            {
+                arguments = args;
+                File.WriteAllText(args[^1], "burned");
+                return Task.FromResult(0);
+            },
+            taskStore: store);
+
+        await workflow.BurnTaskAsync(task.Id);
+
+        // subtitles= 对 ASS 不渲染任何内容，必须用 ass=。
+        var filter = arguments![Array.IndexOf(arguments.ToArray(), "-vf") + 1];
+        Assert.StartsWith("ass=", filter);
+        Assert.Contains("subtitle.ass", filter);
+    }
+
+    [Fact]
+    public async Task Burn_keeps_the_subtitles_filter_for_srt()
+    {
+        using var temp = new TemporaryDirectory();
+        var store = new CliTaskStore(Path.Combine(temp.Path, "tasks"));
+        var workspace = Path.Combine(temp.Path, "standard");
+        Directory.CreateDirectory(workspace);
+        File.WriteAllText(Path.Combine(workspace, "video.mp4"), "video");
+        File.WriteAllText(Path.Combine(workspace, "translated_subtitle.proofread.srt"), "1\n");
+        var task = store.Create(new TranslationRequest("https://example.com/video", "standard", temp.Path));
+        task.Status = CliTaskStatus.Completed;
+        task.WorkspacePath = workspace;
+        task.Context["VideoExt"] = ".mp4";
+        store.Save(task);
+
+        IReadOnlyList<string>? arguments = null;
+        var workflow = new PipelineTranslationWorkflow(
+            mediaProcessRunner: (_, args, _, _) =>
+            {
+                arguments = args;
+                File.WriteAllText(args[^1], "burned");
+                return Task.FromResult(0);
+            },
+            taskStore: store);
+
+        await workflow.BurnTaskAsync(task.Id);
+
+        var filter = arguments![Array.IndexOf(arguments.ToArray(), "-vf") + 1];
+        Assert.StartsWith("subtitles=", filter);
+        Assert.Contains("subtitle.srt", filter);
+    }
+
+    [Fact]
     public async Task Burn_rejects_tasks_that_are_not_completed()
     {
         using var temp = new TemporaryDirectory();

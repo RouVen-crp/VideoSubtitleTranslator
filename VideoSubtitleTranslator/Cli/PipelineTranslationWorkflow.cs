@@ -409,9 +409,17 @@ public sealed class PipelineTranslationWorkflow : ICliWorkflow, ICliTaskWorkflow
         File.Copy(subtitlePath, safeSubtitlePath);
         try
         {
+            // ASS/SSA 必须用 ass 过滤器：subtitles= 对这类文件不渲染任何内容，
+            // 会让双轨字幕烧出一个"没有字幕"的视频。
+            var safeSubtitleName = Path.GetFileName(safeSubtitlePath);
+            var subtitleExtension = Path.GetExtension(safeSubtitlePath);
+            var subtitleFilter = subtitleExtension.Equals(".ass", StringComparison.OrdinalIgnoreCase) ||
+                                 subtitleExtension.Equals(".ssa", StringComparison.OrdinalIgnoreCase)
+                ? $"ass='{safeSubtitleName}'"
+                : $"subtitles='{safeSubtitleName}'";
             var arguments = new List<string>
             {
-                "-n", "-i", videoPath, "-vf", $"subtitles='{Path.GetFileName(safeSubtitlePath)}'"
+                "-n", "-i", videoPath, "-vf", subtitleFilter
             };
             var qualityPreset = string.IsNullOrWhiteSpace(config.Burn.QualityPreset) ? "auto" : config.Burn.QualityPreset.Trim();
             if (string.Equals(qualityPreset, "high", StringComparison.OrdinalIgnoreCase))
