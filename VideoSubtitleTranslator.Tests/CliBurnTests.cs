@@ -42,7 +42,10 @@ public sealed class CliBurnTests
         Assert.Equal(Path.Combine(workspace, "burned_video.mp4"), burnedPath);
         Assert.True(File.Exists(burnedPath));
         Assert.Equal(videoPath, arguments![Array.IndexOf(arguments.ToArray(), "-i") + 1]);
-        Assert.Contains("subtitle.srt", arguments[Array.IndexOf(arguments.ToArray(), "-vf") + 1]);
+        // 默认烧中英双语：用现场合成的 ASS，而不是直接烧中文 SRT。
+        var filter = arguments[Array.IndexOf(arguments.ToArray(), "-vf") + 1];
+        Assert.StartsWith("ass=", filter);
+        Assert.Contains("subtitle.ass", filter);
 
         // 重复烧录不覆盖已有产物，编号递增。
         var secondPath = await workflow.BurnTaskAsync(task.Id);

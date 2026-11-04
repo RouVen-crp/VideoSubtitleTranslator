@@ -54,7 +54,19 @@ public sealed class DefaultBuildDualSubtitleStep : BuildDualSubtitleStepBase
         return list;
     }
 
-    internal static string BuildAss(IReadOnlyList<SrtEntry> srtEntries, IReadOnlyList<CulturalAnnotation> annotations)
+    /// <summary>中文译文（主字幕）。</summary>
+    internal const int ChineseFontSize = 32;
+
+    /// <summary>英文原文（副字幕，放在中文上方）。</summary>
+    internal const int EnglishFontSize = 24;
+
+    /// <summary>文化注释（最小，放在最下方）。</summary>
+    internal const int AnnotationFontSize = 20;
+
+    internal static string BuildAss(
+        IReadOnlyList<SrtEntry> srtEntries,
+        IReadOnlyList<CulturalAnnotation> annotations,
+        IReadOnlyList<string>? englishLines = null)
     {
         var annotationByIndex = new Dictionary<int, CulturalAnnotation>();
         foreach (var annotation in annotations)
@@ -78,8 +90,7 @@ public sealed class DefaultBuildDualSubtitleStep : BuildDualSubtitleStepBase
         sb.AppendLine();
         sb.AppendLine("[V4+ Styles]");
         sb.AppendLine("Format: Name, Fontname, Fontsize, PrimaryColour, SecondaryColour, OutlineColour, BackColour, Bold, Italic, Underline, StrikeOut, ScaleX, ScaleY, Spacing, Angle, BorderStyle, Outline, Shadow, Alignment, MarginL, MarginR, MarginV, Encoding");
-        sb.AppendLine("Style: Translation,Arial,44,&H00FFFFFF,&H000000FF,&H00000000,&H80000000,1,0,0,0,100,100,0,0,1,2,0,2,60,60,60,1");
-        sb.AppendLine("Style: Annotation,Arial,30,&H00AAAAAA,&H000000FF,&H00000000,&H80000000,0,0,0,0,100,100,0,0,1,1,0,2,60,60,20,1");
+        sb.AppendLine($"Style: Translation,Arial,{ChineseFontSize},&H00FFFFFF,&H000000FF,&H00000000,&H80000000,1,0,0,0,100,100,0,0,1,2,0,2,60,60,60,1");
         sb.AppendLine();
         sb.AppendLine("[Events]");
         sb.AppendLine("Format: Layer, Start, End, Style, Name, MarginL, MarginR, MarginV, Effect, Text");
@@ -87,17 +98,59 @@ public sealed class DefaultBuildDualSubtitleStep : BuildDualSubtitleStepBase
         for (var i = 0; i < srtEntries.Count; i++)
         {
             var entry = srtEntries[i];
-            var text = EscapeAssText(entry.Text);
-            var annotation = annotationByIndex.TryGetValue(entry.Index, out var found) ? found : null;
+            var timestamp = $"{ToAssTimestamp(entry.Start)},{ToAssTimestamp(entry.End)}";
+            var lines = new List<string>();
 
-            var dialogueText = annotation is { NeedsAnnotation: true, Annotation.Length: > 0 }
-                ? $"{text}\\N{{\\fs30\\c&HAAAAAA&}}{EscapeAssText(annotation.Annotation)}"
-                : text;
+            // 一个事件里按"英文 → 中文 → 注释"的顺序排三行，行距和顺序完全由这里决定；
+            // 拆成多个事件会触发 libass 的避让逻辑，导致行序不可控。
+            if (englishLines is not null && entry.Index - 1 < englishLines.Count)
+            {
+                var english = englishLines[entry.Index - 1].Trim();
+                if (english.Length > 0)
+                {
+                    lines.AddRange(WrapText(english, 72)
+                        .Select(line => $"{{\\fs{EnglishFontSize}\\c&H00D0D0D0&}}{EscapeAssText(line)}"));
+                }
+            }
 
-            sb.AppendLine($"Dialogue: 0,{ToAssTimestamp(entry.Start)},{ToAssTimestamp(entry.End)},Translation,,0,0,0,,{dialogueText}");
+            lines.Add($"{{\\fs{ChineseFontSize}\\c&H00FFFFFF&}}{EscapeAssText(entry.Text)}");
+
+            if (annotationByIndex.TryGetValue(entry.Index, out var annotation) &&
+                annotation is { NeedsAnnotation: true, Annotation.Length: > 0 })
+            {
+                lines.Add($"{{\\fs{AnnotationFontSize}\\c&H00AAAAAA&}}{EscapeAssText(annotation.Annotation)}");
+            }
+
+            sb.AppendLine($"Dialogue: 0,{timestamp},Translation,,0,0,0,,{string.Join("\\N", lines)}");
         }
 
         return sb.ToString();
+    }
+
+    /// <summary>按词边界把过长的一行拆开，避免英文句子冲出画面右侧。</summary>
+    internal static IReadOnlyList<string> WrapText(string text, int maxCharacters)
+    {
+        if (text.Length <= maxCharacters)
+        {
+            return [text];
+        }
+
+        var result = new List<string>();
+        var current = new StringBuilder();
+        foreach (var word in text.Split(' ', StringSplitOptions.RemoveEmptyEntries))
+        {
+            if (current.Length > 0 && current.Length + 1 + word.Length > maxCharacters)
+            {
+                result.Add(current.ToString());
+                current.Clear();
+            }
+
+            if (current.Length > 0) current.Append(' ');
+            current.Append(word);
+        }
+
+        if (current.Length > 0) result.Add(current.ToString());
+        return result;
     }
 
     /// <summary>
@@ -136,8 +189,21 @@ public sealed class DefaultBuildDualSubtitleStep : BuildDualSubtitleStepBase
         var annotations = JsonSerializer.Deserialize<List<CulturalAnnotation>>(annotationsJson,
             new JsonSerializerOptions { PropertyNameCaseInsensitive = true }) ?? new List<CulturalAnnotation>();
 
-        var ass = BuildAss(srtEntries, annotations);
+        var ass = BuildAss(srtEntries, annotations, ReadEnglishLines(dirs));
         File.WriteAllText(dirs.DualSubtitlePath, ass, Encoding.UTF8);
+    }
+
+    /// <summary>
+    /// 英文原文行（用于把中英双语一起烧进视频）。缺文件时返回 null，退化为只有中文。
+    /// </summary>
+    internal static IReadOnlyList<string>? ReadEnglishLines(WorkDirs dirs)
+    {
+        if (!File.Exists(dirs.NormalizedSubtitlePath))
+        {
+            return null;
+        }
+
+        return ParseSrt(dirs.NormalizedSubtitlePath).Select(entry => entry.Text).ToList();
     }
 
     public override Dictionary<string, string> Execute(Dictionary<string, string> context)

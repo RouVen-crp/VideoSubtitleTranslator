@@ -62,7 +62,6 @@ public class BuildDualSubtitleTests
 
         Assert.Contains("[Script Info]", ass);
         Assert.Contains("Style: Translation", ass);
-        Assert.Contains("Style: Annotation", ass);
         Assert.Contains("[Events]", ass);
         Assert.Contains("Dialogue:", ass);
         Assert.Contains("搞什么鬼啊", ass);

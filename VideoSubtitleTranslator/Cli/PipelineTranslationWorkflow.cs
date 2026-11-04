@@ -151,7 +151,7 @@ public sealed class PipelineTranslationWorkflow : ICliWorkflow, ICliTaskWorkflow
         var (_, translatorPath) = Program.ResolveConfigPaths(task.Mode, AppContext.BaseDirectory);
         var config = TranslatorRuntimeConfig.Load(translatorPath);
         config.Mode = task.Mode;
-        return await BurnVideoAsync(dirs.VideoPath, subtitlePath, dirs.CustomPath(""), config, cancellationToken);
+        return await BurnVideoAsync(dirs, subtitlePath, config, cancellationToken);
     }
 
     private async Task<TranslationResult> ExecuteTaskAsync(
@@ -386,23 +386,26 @@ public sealed class PipelineTranslationWorkflow : ICliWorkflow, ICliTaskWorkflow
         var bilingualPath = request.CreateBilingualSubtitle
             ? BilingualSubtitleBuilder.Create(dirs.NormalizedSubtitlePath, subtitlePath, dirs.CustomPath(""))
             : null;
-        var burnSubtitlePath = File.Exists(dirs.DualSubtitlePath) ? dirs.DualSubtitlePath : subtitlePath;
         var burnedPath = request.BurnSubtitles
             ? await _taskPipelineExecutor.RunStageAsync("BurnSubtitle",
-                () => BurnVideoAsync(dirs.VideoPath, burnSubtitlePath, dirs.CustomPath(""), config, cancellationToken))
+                () => BurnVideoAsync(dirs, subtitlePath, config, cancellationToken))
             : null;
 
         return new TranslationResult(subtitlePath, BilingualSubtitlePath: bilingualPath, BurnedVideoPath: burnedPath);
     }
 
+    /// <summary>
+    /// 默认烧录中英双语（meme 模式再加文化注释）；合成失败时回退到单个字幕文件。
+    /// </summary>
     private async Task<string> BurnVideoAsync(
-        string videoPath,
-        string subtitlePath,
-        string workspacePath,
+        WorkDirs dirs,
+        string fallbackSubtitlePath,
         TranslatorRuntimeConfig config,
         CancellationToken cancellationToken)
     {
-        var outputPath = GetAvailableArtifactPath(workspacePath, "burned_video", ".mp4");
+        var generatedSubtitlePath = TryWriteBilingualSubtitle(dirs);
+        var subtitlePath = generatedSubtitlePath ?? fallbackSubtitlePath;
+        var outputPath = GetAvailableArtifactPath(dirs.CustomPath(""), "burned_video", ".mp4");
         var safeDirectory = Path.Combine(Path.GetTempPath(), "zimu-burn", Guid.NewGuid().ToString("N"));
         Directory.CreateDirectory(safeDirectory);
         var safeSubtitlePath = Path.Combine(safeDirectory, "subtitle" + Path.GetExtension(subtitlePath));
@@ -419,7 +422,7 @@ public sealed class PipelineTranslationWorkflow : ICliWorkflow, ICliTaskWorkflow
                 : $"subtitles='{safeSubtitleName}'";
             var arguments = new List<string>
             {
-                "-n", "-i", videoPath, "-vf", subtitleFilter
+                "-n", "-i", dirs.VideoPath, "-vf", subtitleFilter
             };
             var qualityPreset = string.IsNullOrWhiteSpace(config.Burn.QualityPreset) ? "auto" : config.Burn.QualityPreset.Trim();
             if (string.Equals(qualityPreset, "high", StringComparison.OrdinalIgnoreCase))
@@ -440,7 +443,26 @@ public sealed class PipelineTranslationWorkflow : ICliWorkflow, ICliTaskWorkflow
         finally
         {
             try { Directory.Delete(safeDirectory, recursive: true); } catch { }
+            if (generatedSubtitlePath is not null)
+            {
+                try { File.Delete(generatedSubtitlePath); } catch { }
+            }
         }
+    }
+
+    private static string? TryWriteBilingualSubtitle(WorkDirs dirs)
+    {
+        var ass = BurnSubtitleBuilder.TryBuild(dirs);
+        if (string.IsNullOrWhiteSpace(ass))
+        {
+            return null;
+        }
+
+        var directory = Path.Combine(Path.GetTempPath(), "zimu-burn-subs");
+        Directory.CreateDirectory(directory);
+        var path = Path.Combine(directory, Guid.NewGuid().ToString("N") + ".ass");
+        File.WriteAllText(path, ass, new UTF8Encoding(false));
+        return path;
     }
 
     private static string GetAvailableArtifactPath(string directory, string name, string extension)
