@@ -39,3 +39,20 @@ jobs:
 
       - name: Run full xUnit suite
         run: dotnet test VideoSubtitleTranslator.Tests/VideoSubtitleTranslator.Tests.csproj --configuration Release --no-build --no-restore
+
+      # 用户抱怨过 "装完还是敲不出 zimu/zm"，所以每个平台都真的执行一次安装脚本，
+      # 并确认两个入口都能启动，而不只是编译通过。
+      - name: Install command entry points (macOS/Linux)
+        if: runner.os != 'Windows'
+        run: |
+          ./VideoSubtitleTranslator/scripts/install.sh --prefix "$RUNNER_TEMP/zimu-bin"
+          "$RUNNER_TEMP/zimu-bin/zimu" --help > /dev/null
+          "$RUNNER_TEMP/zimu-bin/zm" --help > /dev/null
+
+      - name: Install command entry points (Windows)
+        if: runner.os == 'Windows'
+        shell: pwsh
+        run: |
+          ./VideoSubtitleTranslator/scripts/install.ps1 -InstallDir "$env:RUNNER_TEMP\zimu-bin" -NoPathUpdate
+          & "$env:RUNNER_TEMP\zimu-bin\zimu.cmd" --help | Out-Null
+          & "$env:RUNNER_TEMP\zimu-bin\zm.cmd" --help | Out-Null
