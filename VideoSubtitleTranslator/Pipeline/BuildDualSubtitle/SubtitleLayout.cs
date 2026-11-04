@@ -39,6 +39,17 @@ public static class SubtitleLayout
         var duration = Math.Max(0, cue.End - cue.Start);
         var parts = SplitChinese(cue.Chinese);
 
+        // 拆得越多越容易"闪一下"：每条至少要能分到 1 秒。
+        var maxParts = Math.Max(1, (int)Math.Floor(duration / MinimumDurationSeconds));
+        while (parts.Count > maxParts && parts.Count > 1)
+        {
+            var shortest = Enumerable.Range(0, parts.Count - 1)
+                .OrderBy(index => parts[index].Length + parts[index + 1].Length)
+                .First();
+            parts[shortest] += parts[shortest + 1];
+            parts.RemoveAt(shortest + 1);
+        }
+
         // 时长远超单条上限时继续拆，避免一条字幕停 7 秒以上。
         var needed = (int)Math.Ceiling(duration / MaximumDurationSeconds);
         while (parts.Count < needed && parts.Count > 0)

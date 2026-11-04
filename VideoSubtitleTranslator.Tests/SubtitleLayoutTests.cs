@@ -37,6 +37,19 @@ public sealed class SubtitleLayoutTests
     }
 
     [Fact]
+    public void Short_cues_are_not_split_when_that_would_flash_each_piece()
+    {
+        // 只有 1.2 秒却塞了 30 个字：优先保证可读时长，宁可行长一点也不拆成两条 0.6 秒。
+        var cue = new SubtitleLayout.Cue(0, 1.2, new string('字', 30), null, null);
+
+        var arranged = SubtitleLayout.Arrange([cue]);
+
+        var single = Assert.Single(arranged);
+        Assert.True(single.End - single.Start >= SubtitleLayout.MinimumDurationSeconds - 0.001,
+            $"时长只有 {single.End - single.Start:F2}s");
+    }
+
+    [Fact]
     public void Tail_never_overlaps_the_next_cue()
     {
         var cues = new List<SubtitleLayout.Cue>
