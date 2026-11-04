@@ -193,6 +193,9 @@ dotnet run --project VideoSubtitleTranslator -- translate "<视频链接或本�
 # 单独下载在线视频
 dotnet run --project VideoSubtitleTranslator -- download "<视频链接>"
 
+# 只给已完成的任务补烧录字幕（不重新下载/转录/翻译）
+dotnet run --project VideoSubtitleTranslator -- burn <任务ID>
+
 # 检查下载或翻译依赖
 dotnet run --project VideoSubtitleTranslator -- doctor download
 dotnet run --project VideoSubtitleTranslator -- doctor translate
@@ -213,6 +216,8 @@ zimu translate <URL|视频路径> [--mode standard|meme] [--bilingual] [--burn] 
 - `--workspace`：可选，工作区根目录；省略时使用 `VideoSubtitleTranslator/output/`。
 
 运行 `zimu history` 或在引导界面打开“任务历史”，可查看每个任务的创建时间（本地时间，含时区偏移）、状态和阶段。
+
+`translate` 里的 `--burn` 是"翻译完顺手烧录"；如果任务已经翻译好、只想补烧录，用 `zimu burn <任务ID>`。它复用任务目录里已有的视频和字幕（meme 模式优先用 `dual_subtitle.ass`），不重新下载、转录或翻译，产物写到同一任务目录的 `burned_video.mp4`（重名时 `burned_video.2.mp4`）。
 
 CLI 使用 `yt-dlp` 下载视频；视频链接同时带有播放列表参数时，`translate` 只处理该视频。如果网站要求登录，需按 yt-dlp 支持的方式配置 cookies。标准模式和 Meme 模式分别读取 `pipeline.config.json` / `Config/translator.config.json` 与 `pipeline_meme.config.json` / `Config/translator_meme.config.json`。
 

@@ -176,6 +176,47 @@ public static class CliApplication
             }
         }
 
+        if (string.Equals(args[0], "burn", StringComparison.OrdinalIgnoreCase))
+        {
+            if (args.Length == 2 && IsHelp(args[1]))
+            {
+                WriteBurnHelp(standardOutput);
+                return Success;
+            }
+            if (workflow is not ICliBurnWorkflow burnWorkflow || args.Length != 2 || !CliTaskStore.IsValidId(args[1]))
+            {
+                standardError.WriteLine("用法：zimu burn <任务ID>。请运行 zimu history 查看任务 ID。");
+                return UsageError;
+            }
+
+            try
+            {
+                var burnedPath = await burnWorkflow.BurnTaskAsync(args[1], cancellationToken);
+                standardOutput.WriteLine($"字幕烧录视频已生成：{Path.GetFullPath(burnedPath)}");
+                return Success;
+            }
+            catch (OperationCanceledException)
+            {
+                standardError.WriteLine("字幕烧录已取消。");
+                return TranslationError;
+            }
+            catch (InvalidOperationException exception)
+            {
+                standardError.WriteLine(exception.Message);
+                return TranslationError;
+            }
+            catch (TaskStoreUnavailableException exception)
+            {
+                standardError.WriteLine(exception.Message);
+                return TranslationError;
+            }
+            catch (Exception)
+            {
+                standardError.WriteLine("字幕烧录失败。请检查视频、字幕文件和 ffmpeg 配置后重试。");
+                return TranslationError;
+            }
+        }
+
         if (string.Equals(args[0], "download", StringComparison.OrdinalIgnoreCase))
         {
             if (args.Length == 2 && IsHelp(args[1]))
@@ -489,6 +530,7 @@ public static class CliApplication
         writer.WriteLine("  zimu history");
         writer.WriteLine("  zimu resume <任务ID>");
         writer.WriteLine("  zimu play <任务ID>");
+        writer.WriteLine("  zimu burn <任务ID>");
         writer.WriteLine("  zimu --help");
         writer.WriteLine();
         WriteTranslateArguments(writer, currentDirectory);
@@ -501,6 +543,7 @@ public static class CliApplication
         writer.WriteLine("  zimu translate \"./lesson.mp4\" --mode meme");
         writer.WriteLine("  zimu translate \"./lesson.mp4\" --bilingual --burn --workspace \"./output\"");
         writer.WriteLine("  zimu download https://example.com/video");
+        writer.WriteLine("  zimu burn a1b2c3d4   给已完成的任务补烧录字幕视频");
         writer.WriteLine("  zimu translate --help  查看翻译命令的详细示例");
     }
 
@@ -550,6 +593,15 @@ public static class CliApplication
         writer.WriteLine("用法：zimu play <任务ID>");
         writer.WriteLine("示例：zimu play a1b2c3d4");
         writer.WriteLine("播放已完成的任务并加载中文字幕；运行 zimu history 查看任务 ID。");
+    }
+
+    private static void WriteBurnHelp(TextWriter writer)
+    {
+        writer.WriteLine("用法：zimu burn <任务ID>");
+        writer.WriteLine("示例：zimu burn a1b2c3d4");
+        writer.WriteLine("把已完成任务的字幕烧录进视频，不重新下载、转录或翻译。");
+        writer.WriteLine("输出为该任务目录下的 burned_video.mp4；已存在时使用 burned_video.2.mp4 等编号。");
+        writer.WriteLine("需要 ffmpeg。运行 zimu history 查看任务 ID。");
     }
 
     internal static void WritePlaybackResult(VideoPlaybackResult playback, TextWriter writer)
