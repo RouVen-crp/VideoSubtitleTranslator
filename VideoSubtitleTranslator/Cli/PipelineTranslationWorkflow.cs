@@ -190,6 +190,15 @@ public sealed class PipelineTranslationWorkflow : ICliWorkflow, ICliTaskWorkflow
             var context = _hasInjectedPipelineRunner
                 ? _pipelineRunner(pipelineConfig, initialContext, translatorConfig)
                 : _taskPipelineExecutor.Execute(pipelineConfig, initialContext, translatorConfig, task);
+
+            // 远程任务的工作目录与视频扩展名只有流水线跑完才确定；
+            // 不回写任务记录，zimu play 与完成页播放都会因为缺少视频信息而失败。
+            if (context.TryGetValue("WorkspacePath", out var workspacePath) && !string.IsNullOrWhiteSpace(workspacePath))
+                task.WorkspacePath = workspacePath;
+            if (context.TryGetValue("VideoExt", out var videoExtension) && !string.IsNullOrWhiteSpace(videoExtension))
+                task.Context["VideoExt"] = videoExtension;
+            _taskStore.Save(task);
+
             var dirs = new WorkDirs(context["WorkspacePath"], context["VideoExt"]);
             return await CreateTranslationResultAsync(dirs, request, translatorConfig, cancellationToken);
         }

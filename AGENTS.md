@@ -25,6 +25,10 @@
 # 构建
 dotnet build VideoSubtitleTranslator.sln
 
+# 安装 zimu / zm 命令入口（装入用户 PATH；重复执行安全）
+./VideoSubtitleTranslator/scripts/install.ps1     # Windows
+./VideoSubtitleTranslator/scripts/install.sh      # macOS / Linux
+
 # 运行（从仓库根目录）
 dotnet run --project VideoSubtitleTranslator/VideoSubtitleTranslator -- translate "<url>"
 dotnet run --project VideoSubtitleTranslator/VideoSubtitleTranslator -- translate "<url>" --mode meme

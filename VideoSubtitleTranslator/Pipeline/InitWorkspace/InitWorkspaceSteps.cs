@@ -27,6 +27,13 @@ public sealed class DefaultInitWorkspaceStep : InitWorkspaceStepBase
         var title = context["VideoTitle"];
         var root = context["WorkspaceRoot"];
 
+        // 调用方（本地视频输入、或恢复既有任务）已经确定工作目录时保持不变，
+        // 否则重新计算会把已复制到该目录的视频和已校验的阶段产物指向别处。
+        if (context.TryGetValue("WorkspacePath", out var decidedPath) && !string.IsNullOrWhiteSpace(decidedPath))
+        {
+            return context;
+        }
+
         var safeTitle = Regex.Replace(title, @"\s", "_");
         safeTitle = Regex.Replace(safeTitle, "\"", "");
         safeTitle = Regex.Replace(safeTitle, ",", "");

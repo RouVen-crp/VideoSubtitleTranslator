@@ -1,0 +1,8 @@
+# Shell entry points are executed by /bin/sh on macOS and Linux, so they must keep LF
+# even when the repository is cloned on Windows with core.autocrlf=true.
+*.sh text eol=lf
+VideoSubtitleTranslator/scripts/zm text eol=lf
+
+# Windows launchers and PowerShell scripts stay CRLF.
+*.cmd text eol=crlf
+*.ps1 text eol=crlf

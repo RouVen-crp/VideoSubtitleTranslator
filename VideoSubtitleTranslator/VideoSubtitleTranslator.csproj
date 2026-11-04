@@ -1,4 +1,4 @@
-﻿<Project Sdk="Microsoft.NET.Sdk">
+<Project Sdk="Microsoft.NET.Sdk">
 
     <PropertyGroup>
         <OutputType>Exe</OutputType>
@@ -24,6 +24,9 @@
         <Content Include="scripts/init_python_venv.sh" CopyToOutputDirectory="PreserveNewest" />
         <Content Include="scripts/setup_windows.ps1" CopyToOutputDirectory="PreserveNewest" />
         <Content Include="scripts/zm" Link="zm" CopyToOutputDirectory="PreserveNewest" CopyToPublishDirectory="PreserveNewest" />
+        <Content Include="scripts/zm.cmd" Link="zm.cmd" CopyToOutputDirectory="PreserveNewest" CopyToPublishDirectory="PreserveNewest" />
+        <Content Include="scripts/install.ps1" CopyToOutputDirectory="PreserveNewest" />
+        <Content Include="scripts/install.sh" CopyToOutputDirectory="PreserveNewest" />
         <Content Include="Prompts/**/*.md" CopyToOutputDirectory="PreserveNewest" />
         <Content Include="Web/**/*" CopyToOutputDirectory="PreserveNewest" />
         <Content Include="pipeline.web.config.json" CopyToOutputDirectory="PreserveNewest" />
