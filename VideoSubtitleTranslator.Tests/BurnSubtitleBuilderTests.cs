@@ -9,7 +9,7 @@ namespace VideoSubtitleTranslator.Tests;
 public sealed class BurnSubtitleBuilderTests
 {
     [Fact]
-    public void Bilingual_ass_contains_english_chinese_and_annotation_with_smaller_fonts()
+    public void Bilingual_ass_contains_english_chinese_and_annotation_in_that_order()
     {
         using var temp = new TemporaryDirectory();
         var dirs = CreateWorkspace(temp.Path, withAnnotations: true);
@@ -60,8 +60,10 @@ public sealed class BurnSubtitleBuilderTests
         var workspace = Path.Combine(root, "task");
         Directory.CreateDirectory(workspace);
         var dirs = new WorkDirs(workspace, ".mp4");
-        File.WriteAllText(dirs.NormalizedSubtitlePath, "1\n00:00:00,000 --> 00:00:07,880\nSo this is the girl.\n\n", Encoding.UTF8);
-        File.WriteAllText(dirs.TranslatedSubtitlePath, "1\n00:00:00,000 --> 00:00:07,880\n所以这就是那个女孩。\n\n", Encoding.UTF8);
+        File.WriteAllText(dirs.NormalizedSubtitlePath,
+            "1\n00:00:00,000 --> 00:00:03,000\nSo this is the girl.\n\n", Encoding.UTF8);
+        File.WriteAllText(dirs.TranslatedSubtitlePath,
+            "1\n00:00:00,000 --> 00:00:03,000\n所以这就是那个女孩。\n\n", Encoding.UTF8);
         if (withAnnotations)
         {
             File.WriteAllText(dirs.CulturalAnnotationsPath,
