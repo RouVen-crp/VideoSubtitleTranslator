@@ -7,7 +7,7 @@ using System.Runtime.InteropServices;
 
 namespace VideoSubtitleTranslator.Cli;
 
-public sealed class PipelineTranslationWorkflow : ICliWorkflow, ICliTaskWorkflow, ICliPlaybackWorkflow, ICliQueueWorkflow
+public sealed class PipelineTranslationWorkflow : ICliWorkflow, ICliTaskWorkflow, ICliPlaybackWorkflow, ICliQueueWorkflow, ICliBurnWorkflow
 {
     private readonly Func<string, CancellationToken, Task<string?>> _mediaValidator;
     private readonly Func<PipelineConfig, Dictionary<string, string>, TranslatorRuntimeConfig, Dictionary<string, string>> _pipelineRunner;
@@ -119,6 +119,39 @@ public sealed class PipelineTranslationWorkflow : ICliWorkflow, ICliTaskWorkflow
         }
 
         return Task.FromResult(_videoPlayback.Play(videoPath, task.SubtitlePath));
+    }
+
+    /// <summary>
+    /// 只做烧录：复用已完成任务目录里的视频与字幕，不重新下载/转录/翻译。
+    /// </summary>
+    public async Task<string> BurnTaskAsync(string taskId, CancellationToken cancellationToken = default)
+    {
+        cancellationToken.ThrowIfCancellationRequested();
+        var task = _taskStore.Get(taskId) ?? throw new InvalidOperationException("找不到该任务。请运行 zimu history 查看任务 ID。");
+        if (task.Status != CliTaskStatus.Completed)
+            throw new InvalidOperationException("该任务尚未完成，无法烧录字幕。请先完成翻译，或运行 zimu history 查看状态。");
+        if (string.IsNullOrWhiteSpace(task.WorkspacePath) ||
+            !task.Context.TryGetValue("VideoExt", out var extension) || string.IsNullOrWhiteSpace(extension))
+        {
+            throw new InvalidOperationException("任务的视频文件信息不完整。请检查任务目录后重试。");
+        }
+
+        var dirs = new WorkDirs(task.WorkspacePath, extension);
+        if (!File.Exists(dirs.VideoPath))
+            throw new InvalidOperationException("任务目录中找不到视频文件。请恢复任务或重新运行 translate。");
+
+        // 双轨字幕（meme）优先，其次校对后的中文字幕，最后退回未校对版本。
+        var subtitlePath = File.Exists(dirs.DualSubtitlePath) ? dirs.DualSubtitlePath
+            : File.Exists(dirs.ProofreadSubtitlePath) ? dirs.ProofreadSubtitlePath
+            : File.Exists(dirs.TranslatedSubtitlePath) ? dirs.TranslatedSubtitlePath
+            : null;
+        if (subtitlePath is null)
+            throw new InvalidOperationException("任务目录中没有可用的字幕文件。请先完成翻译。");
+
+        var (_, translatorPath) = Program.ResolveConfigPaths(task.Mode, AppContext.BaseDirectory);
+        var config = TranslatorRuntimeConfig.Load(translatorPath);
+        config.Mode = task.Mode;
+        return await BurnVideoAsync(dirs.VideoPath, subtitlePath, dirs.CustomPath(""), config, cancellationToken);
     }
 
     private async Task<TranslationResult> ExecuteTaskAsync(
