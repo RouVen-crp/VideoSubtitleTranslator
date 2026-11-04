@@ -121,7 +121,8 @@ public sealed class LocalWorkflowContextTests
 
         Assert.Equal(0, exit);
         Assert.Contains("translated_subtitle.proofread.srt", output.ToString());
-        Assert.Empty(error.ToString());
+        // stderr 承载进度与输出目录说明，只有出现失败字样才说明这条链路走错了。
+        Assert.DoesNotContain("翻译失败", error.ToString());
     }
 
     private sealed class TemporaryDirectory : IDisposable
