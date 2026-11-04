@@ -27,7 +27,8 @@ public sealed class CliCommandTests
         Assert.False(workflow.Request?.BurnSubtitles);
         Assert.Equal(Path.Combine(temp.Path, "VideoSubtitleTranslator", "output"), workflow.Request?.WorkspaceRoot);
         Assert.Contains(subtitlePath, output.ToString());
-        Assert.Empty(error.ToString());
+        Assert.Contains("正在启动在线翻译任务", error.ToString());
+        Assert.Contains($"输出根目录：{workflow.Request?.WorkspaceRoot}", error.ToString());
         Assert.Equal("1\n00:00:00,000 --> 00:00:01,000\n你好\n", await File.ReadAllTextAsync(subtitlePath));
     }
 
@@ -49,7 +50,7 @@ public sealed class CliCommandTests
         Assert.True(workflow.Request?.BurnSubtitles);
         Assert.Contains(Path.GetFullPath(workflow.Result!.BilingualSubtitlePath!), output.ToString());
         Assert.Contains(Path.GetFullPath(workflow.Result.BurnedVideoPath!), output.ToString());
-        Assert.Empty(error.ToString());
+        Assert.Contains("正在启动在线翻译任务", error.ToString());
     }
 
     [Theory]
@@ -123,6 +124,7 @@ public sealed class CliCommandTests
 
         Assert.Equal(0, exitCode);
         Assert.Contains("zimu download <URL>", output.ToString());
+        Assert.Contains($"默认下载目录：{Path.Combine(temp.Path, "VideoSubtitleTranslator", "output")}", output.ToString());
         Assert.Null(workflow.DownloadRequest);
     }
 
@@ -166,7 +168,8 @@ public sealed class CliCommandTests
         Assert.Equal(Path.Combine(temp.Path, "VideoSubtitleTranslator", "output"), workflow.Request?.WorkspaceRoot);
         Assert.True(workflow.Request?.IsLocalFile);
         Assert.Contains(subtitlePath, output.ToString());
-        Assert.Empty(error.ToString());
+        Assert.Contains("正在启动本地翻译任务", error.ToString());
+        Assert.Contains($"输出根目录：{workflow.Request?.WorkspaceRoot}", error.ToString());
     }
 
     [Fact]
@@ -316,7 +319,24 @@ public sealed class CliCommandTests
 
         Assert.Equal(0, exitCode);
         Assert.Contains("translate <URL|视频路径>", output.ToString());
+        Assert.Contains("默认输出根目录：", output.ToString());
         Assert.Null(workflow.Request);
+        Assert.Empty(error.ToString());
+    }
+
+    [Fact]
+    public async Task Top_level_help_shows_the_default_output_directory_and_progress_options()
+    {
+        using var temp = new TemporaryDirectory();
+        var workflow = new RecordingTranslationWorkflow(Path.Combine(temp.Path, "unused.srt"));
+        using var output = new StringWriter();
+        using var error = new StringWriter();
+
+        var exitCode = await CliApplication.RunAsync(["--help"], workflow, output, error, false, temp.Path);
+
+        Assert.Equal(0, exitCode);
+        Assert.Contains($"默认输出根目录：{Path.Combine(temp.Path, "VideoSubtitleTranslator", "output")}", output.ToString());
+        Assert.Contains("--workspace <目录>", output.ToString());
         Assert.Empty(error.ToString());
     }
 
@@ -334,7 +354,7 @@ public sealed class CliCommandTests
 
         Assert.Equal(0, exitCode);
         Assert.Equal("meme", workflow.Request?.Mode);
-        Assert.Empty(error.ToString());
+        Assert.Contains("正在启动在线翻译任务（meme）", error.ToString());
     }
 
     [Theory]

@@ -12,11 +12,11 @@
 
 开发环境需要 .NET 10 SDK。按任务运行对应的依赖检查；已安装在系统中的工具可以直接复用，无需重新安装。需要覆盖默认查找位置时，可通过 `VST_FFMPEG_PATH`、`VST_FFPROBE_PATH`、`VST_YTDLP_PATH`、`VST_PYTHON_PATH` 指定可执行文件。
 
-先检查实际任务需要的依赖：
+从仓库根目录检查实际任务需要的依赖：
 
 ```sh
-zimu doctor download   # 只检查下载器
-zimu doctor translate  # 检查翻译配置、媒体工具、Python/Whisper 和 LLM 环境变量
+dotnet run --project VideoSubtitleTranslator -- doctor download   # 只检查下载器
+dotnet run --project VideoSubtitleTranslator -- doctor translate  # 检查翻译配置、媒体工具、Python/Whisper 和 LLM 环境变量
 ```
 
 macOS 可用 Homebrew 安装缺少的系统工具：
@@ -31,18 +31,43 @@ brew install ffmpeg yt-dlp
 cd VideoSubtitleTranslator
 ./scripts/init_python_venv.sh
 cd ..
+export VST_PYTHON_PATH="$PWD/VideoSubtitleTranslator/PythonScripts/venv/bin/python3"
 cp VideoSubtitleTranslator/.env.example VideoSubtitleTranslator/.env
 ```
 
-在本地 `.env` 或 shell 中设置 `DEEPSEEK_API_KEY`。不要把凭据写入命令历史或提交到仓库。安装包或开发环境提供 `zimu` 和短名 `zm` 两个入口；在仓库根目录开发运行时，可以使用 `dotnet run --project VideoSubtitleTranslator -- ...`：
+在本地 `.env` 或 shell 中设置 `DEEPSEEK_API_KEY`。不要把凭据写入命令历史或提交到仓库。当前仓库没有全局安装器，克隆仓库后不能直接在任意目录输入 `zimu` 或 `zm`。在仓库根目录开发运行时，请使用 `dotnet run --project VideoSubtitleTranslator -- ...`：
 
 ```sh
-zimu translate <视频链接或本地路径>
-zimu download <视频链接>
-zm translate <视频链接或本地路径>
+dotnet run --project VideoSubtitleTranslator -- translate "<视频链接或本地路径>"
+dotnet run --project VideoSubtitleTranslator -- download "<视频链接>"
+dotnet run --project VideoSubtitleTranslator -- doctor translate
 ```
 
-单独运行 `zimu` 或 `zm` 会打开命令行引导界面。`translate` 需要 FFmpeg/ffprobe、Python/Whisper、翻译配置和 LLM 凭据；URL 输入还会下载视频，因此也需要 `yt-dlp` 和网络。本地视频翻译不需要 `yt-dlp`。`download` 只需要翻译配置、`yt-dlp` 和网络（需要登录的网站可配置 cookies），不需要 Python、Whisper、FFmpeg 或 LLM 凭据。
+需要直接输入 `zimu` 或 `zm` 时，按下方[本地发布](#本地发布macoslinux)步骤生成可执行文件并配置 `PATH`。单独运行 `zimu` 或 `zm` 会打开命令行引导界面。`translate` 需要 FFmpeg/ffprobe、Python/Whisper、翻译配置和 LLM 凭据；URL 输入还会下载视频，因此也需要 `yt-dlp` 和网络。本地视频翻译不需要 `yt-dlp`。`download` 只需要翻译配置、`yt-dlp` 和网络（需要登录的网站可配置 cookies），不需要 Python、Whisper、FFmpeg 或 LLM 凭据。
+
+## 本地发布（macOS/Linux）
+
+`dotnet publish` 在本机生成应用文件，不会创建 GitHub Release，也不会自动安装 shell 命令。以下命令从仓库根目录运行，要求已安装 .NET 10 SDK：
+
+```sh
+dotnet publish VideoSubtitleTranslator/VideoSubtitleTranslator.csproj -c Release -o "$PWD/artifacts/zimu"
+./artifacts/zimu/zimu --help
+./artifacts/zimu/zm --help
+export PATH="$PWD/artifacts/zimu:$PATH"
+```
+
+发布目录包含 `zimu` 可执行文件、`zm` 启动脚本及运行配置；加入 `PATH` 后，当前终端即可直接运行 `zimu` 和 `zm`。新的终端也要生效时，把发布目录的绝对路径加入 shell 的 `PATH` 配置。`artifacts/` 已被 Git 忽略。
+
+虚拟环境不需要通过 `source .../activate` 激活；通过 `VST_PYTHON_PATH` 指定解释器即可。若在项目目录创建了虚拟环境，并将本机配置保存在 `VideoSubtitleTranslator/.env`，可这样配置并检查：
+
+```sh
+cd VideoSubtitleTranslator
+export VST_PYTHON_PATH="$PWD/PythonScripts/venv/bin/python3"
+zimu doctor translate
+zimu
+```
+
+发布产物不会自动复制项目目录的 `.env`；应用会从发布目录或当前工作目录查找它。从其他目录启动时，应在 shell 中提供所需环境变量。默认输出工作区也取决于当前工作目录；需要固定位置时，请用 `zimu translate "<输入>" --workspace "<目录>"`。
 
 ## 功能
 
@@ -157,7 +182,9 @@ zimu translate <URL|视频路径> [--mode standard|meme] [--bilingual] [--burn] 
 - `--burn`：可选，生成烧录字幕的视频；默认只生成字幕文件。
 - `--workspace`：可选，工作区根目录；省略时使用 `VideoSubtitleTranslator/output/`。
 
-CLI 使用 `yt-dlp` 下载视频；如果网站要求登录，需按 yt-dlp 支持的方式配置 cookies。标准模式和 Meme 模式分别读取 `pipeline.config.json` / `Config/translator.config.json` 与 `pipeline_meme.config.json` / `Config/translator_meme.config.json`。
+运行 `zimu history` 或在引导界面打开“任务历史”，可查看每个任务的创建时间（本地时间，含时区偏移）、状态和阶段。
+
+CLI 使用 `yt-dlp` 下载视频；视频链接同时带有播放列表参数时，`translate` 只处理该视频。如果网站要求登录，需按 yt-dlp 支持的方式配置 cookies。标准模式和 Meme 模式分别读取 `pipeline.config.json` / `Config/translator.config.json` 与 `pipeline_meme.config.json` / `Config/translator_meme.config.json`。
 
 ## 配置
 
@@ -181,7 +208,7 @@ CLI 使用 `yt-dlp` 下载视频；如果网站要求登录，需按 yt-dlp 支�
 
 ## 输出文件
 
-默认情况下，CLI 将任务文件写入项目目录 `VideoSubtitleTranslator/output/` 下按视频区分的子目录。Web 工作台将数据库、任务输入和导出写入仓库根目录 `outputs/`，也可用 `VST_DATA_DIR` 修改。
+从仓库根目录或项目目录运行时，CLI 默认将任务文件写入 `VideoSubtitleTranslator/output/` 下按视频标题区分的子目录；重名任务使用编号目录。从其他目录运行时，默认路径按当前工作目录计算。`zimu --help` 会显示当前目录对应的绝对输出根目录，`translate` 启动时也会打印本次输出根目录；需要固定位置可使用 `--workspace <目录>`。Web 工作台将数据库、任务输入和导出写入仓库根目录 `outputs/`，也可用 `VST_DATA_DIR` 修改。
 
 根据模式和配置，常见产物包括：
 

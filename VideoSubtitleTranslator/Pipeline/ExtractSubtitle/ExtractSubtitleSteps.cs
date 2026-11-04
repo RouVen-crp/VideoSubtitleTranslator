@@ -39,33 +39,27 @@ public sealed class DefaultExtractSubtitleStep : ExtractSubtitleStepBase
         return outputScriptsDirectory;
     }
 
-    private static string ResolvePythonExecutable(string configuredValue)
+    internal static string ResolvePythonExecutable(string configuredValue, string baseDirectory)
     {
         if (!configuredValue.Equals("python3", StringComparison.OrdinalIgnoreCase) &&
             !configuredValue.Equals("python", StringComparison.OrdinalIgnoreCase))
             return configuredValue;
 
-        var windowsVenvPython = Path.Combine(PythonScriptsDir, "venv", "Scripts", "python.exe");
-        if (File.Exists(windowsVenvPython))
-            return windowsVenvPython;
-
-        var outputVenvPython = Path.Combine(PythonScriptsDir, "venv", "bin", "python3");
-        if (File.Exists(outputVenvPython))
-            return outputVenvPython;
-
-        var outputWindowsVenvPython = Path.Combine(PythonScriptsDir, "venv", "Scripts", "python.exe");
-        if (File.Exists(outputWindowsVenvPython))
-            return outputWindowsVenvPython;
-
-        var projectWindowsVenvPython = Path.GetFullPath(
-            Path.Combine(AppContext.BaseDirectory, "..", "..", "..", "PythonScripts", "venv", "Scripts", "python.exe"));
-        if (File.Exists(projectWindowsVenvPython))
-            return projectWindowsVenvPython;
-
-        var projectVenvPython = Path.GetFullPath(
-            Path.Combine(AppContext.BaseDirectory, "..", "..", "..", "PythonScripts", "venv", "bin", "python3"));
-        if (File.Exists(projectVenvPython))
-            return projectVenvPython;
+        var scriptsDirectory = ResolvePythonScriptsDirectory(baseDirectory);
+        var projectScriptsDirectory = Path.GetFullPath(Path.Combine(baseDirectory, "..", "..", "VideoSubtitleTranslator", "PythonScripts"));
+        var candidates = new[]
+        {
+            Path.Combine(scriptsDirectory, "venv", "Scripts", "python.exe"),
+            Path.Combine(scriptsDirectory, "venv", "bin", "python3"),
+            Path.Combine(scriptsDirectory, "venv", "bin", "python"),
+            Path.Combine(projectScriptsDirectory, "venv", "Scripts", "python.exe"),
+            Path.Combine(projectScriptsDirectory, "venv", "bin", "python3"),
+            Path.Combine(projectScriptsDirectory, "venv", "bin", "python"),
+            Path.GetFullPath(Path.Combine(baseDirectory, "..", "..", "..", "PythonScripts", "venv", "Scripts", "python.exe")),
+            Path.GetFullPath(Path.Combine(baseDirectory, "..", "..", "..", "PythonScripts", "venv", "bin", "python3"))
+        };
+        var venvPython = candidates.FirstOrDefault(File.Exists);
+        if (venvPython is not null) return venvPython;
 
         return "python3";
     }
@@ -79,7 +73,7 @@ public sealed class DefaultExtractSubtitleStep : ExtractSubtitleStepBase
         }
 
         var whisperConfig = GlobalRuntimeConfig.Current.Whisper;
-        var pythonExecutable = ResolvePythonExecutable(whisperConfig.PythonExecutable);
+        var pythonExecutable = ResolvePythonExecutable(whisperConfig.PythonExecutable, AppContext.BaseDirectory);
 
         using var process = new Process
         {
