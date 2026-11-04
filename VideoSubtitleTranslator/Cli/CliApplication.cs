@@ -78,16 +78,24 @@ public static class CliApplication
                 standardError.WriteLine("用法：zimu history");
                 return UsageError;
             }
-            var tasks = await taskWorkflow.GetTaskHistoryAsync(cancellationToken);
-            if (tasks.Count == 0) standardOutput.WriteLine("暂无翻译任务。");
-            else
+            try
             {
-                standardOutput.WriteLine("ID       状态       队列位置 创建时间（本地）               阶段         输入");
-                foreach (var task in tasks)
-                    standardOutput.WriteLine($"{task.Id}  {StatusLabel(task.Status),-8} {task.QueuePosition?.ToString() ?? "-",-8} {FormatTaskCreatedAt(task.CreatedAt),-26} {task.Stage,-12} {CliInputSanitizer.Sanitize(task.Input)}");
+                var tasks = await taskWorkflow.GetTaskHistoryAsync(cancellationToken);
+                if (tasks.Count == 0) standardOutput.WriteLine("暂无翻译任务。");
+                else
+                {
+                    standardOutput.WriteLine("ID       状态       队列位置 创建时间（本地）               阶段         输入");
+                    foreach (var task in tasks)
+                        standardOutput.WriteLine($"{task.Id}  {StatusLabel(task.Status),-8} {task.QueuePosition?.ToString() ?? "-",-8} {FormatTaskCreatedAt(task.CreatedAt),-26} {task.Stage,-12} {CliInputSanitizer.Sanitize(task.Input)}");
+                }
+                standardOutput.WriteLine("提示：zimu resume <ID> 恢复失败或中断的任务；--help 查看命令。");
+                return Success;
             }
-            standardOutput.WriteLine("提示：zimu resume <ID> 恢复失败或中断的任务；--help 查看命令。");
-            return Success;
+            catch (TaskStoreUnavailableException exception)
+            {
+                standardError.WriteLine(exception.Message);
+                return TranslationError;
+            }
         }
 
         if (string.Equals(args[0], "resume", StringComparison.OrdinalIgnoreCase))
@@ -109,6 +117,11 @@ public static class CliApplication
                 onTranslationCompleted?.Invoke(resumed);
                 standardOutput.WriteLine($"任务 {args[1]} 已完成：{Path.GetFullPath(resumed.SubtitlePath)}");
                 return Success;
+            }
+            catch (TaskStoreUnavailableException exception)
+            {
+                standardError.WriteLine(exception.Message);
+                return TranslationError;
             }
             catch (Exception)
             {
@@ -147,6 +160,11 @@ public static class CliApplication
                 return TranslationError;
             }
             catch (VideoPlaybackException exception)
+            {
+                standardError.WriteLine(exception.Message);
+                return TranslationError;
+            }
+            catch (TaskStoreUnavailableException exception)
             {
                 standardError.WriteLine(exception.Message);
                 return TranslationError;
@@ -306,6 +324,11 @@ public static class CliApplication
         catch (PipelineStageFailureException exception)
         {
             standardError.WriteLine($"翻译失败：{exception.Message}");
+            return TranslationError;
+        }
+        catch (TaskStoreUnavailableException exception)
+        {
+            standardError.WriteLine(exception.Message);
             return TranslationError;
         }
         catch (Exception)

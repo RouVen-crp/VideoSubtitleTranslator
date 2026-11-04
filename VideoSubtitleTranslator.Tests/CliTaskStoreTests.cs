@@ -6,6 +6,42 @@ namespace VideoSubtitleTranslator.Tests;
 public sealed class CliTaskStoreTests
 {
     [Fact]
+    public void Default_directory_can_be_redirected_with_VST_TASK_DIR()
+    {
+        using var temp = new TemporaryDirectory();
+        var previous = Environment.GetEnvironmentVariable("VST_TASK_DIR");
+        try
+        {
+            Environment.SetEnvironmentVariable("VST_TASK_DIR", temp.Path);
+
+            var resolved = CliTaskStore.ResolveDefaultDirectory();
+            var task = new CliTaskStore().Create(new TranslationRequest("local.mp4", "standard", temp.Path));
+
+            Assert.Equal(Path.GetFullPath(temp.Path), resolved);
+            Assert.True(File.Exists(Path.Combine(temp.Path, task.Id + ".json")));
+        }
+        finally
+        {
+            Environment.SetEnvironmentVariable("VST_TASK_DIR", previous);
+        }
+    }
+
+    [Fact]
+    public void Unwritable_directory_surfaces_an_actionable_error_instead_of_a_generic_failure()
+    {
+        using var temp = new TemporaryDirectory();
+        var blockedPath = Path.Combine(temp.Path, "not-a-directory");
+        File.WriteAllText(blockedPath, "占位文件，用来让任务目录无法创建");
+        var store = new CliTaskStore(blockedPath);
+
+        var exception = Assert.Throws<TaskStoreUnavailableException>(
+            () => store.Create(new TranslationRequest("local.mp4", "standard", temp.Path)));
+
+        Assert.Contains("VST_TASK_DIR", exception.Message);
+        Assert.Contains(blockedPath, exception.Message);
+    }
+
+    [Fact]
     public void Task_identity_and_request_survive_a_new_store_instance()
     {
         using var temp = new TemporaryDirectory();

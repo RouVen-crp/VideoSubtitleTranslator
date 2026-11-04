@@ -35,7 +35,7 @@ export VST_PYTHON_PATH="$PWD/VideoSubtitleTranslator/PythonScripts/venv/bin/pyth
 cp VideoSubtitleTranslator/.env.example VideoSubtitleTranslator/.env
 ```
 
-在本地 `.env` 或 shell 中设置 `DEEPSEEK_API_KEY`。不要把凭据写入命令历史或提交到仓库。当前仓库没有全局安装器，克隆仓库后不能直接在任意目录输入 `zimu` 或 `zm`。在仓库根目录开发运行时，请使用 `dotnet run --project VideoSubtitleTranslator -- ...`：
+在本地 `.env` 或 shell 中设置 `DEEPSEEK_API_KEY`。不要把凭据写入命令历史或提交到仓库。`zimu` 与短名 `zm` 需要先按下方[安装命令](#安装-zimu-与-zm-命令)放进 `PATH`；未安装时也可以在仓库根目录用 `dotnet run --project VideoSubtitleTranslator -- ...` 运行。
 
 ```sh
 dotnet run --project VideoSubtitleTranslator -- translate "<视频链接或本地路径>"
@@ -43,9 +43,11 @@ dotnet run --project VideoSubtitleTranslator -- download "<视频链接>"
 dotnet run --project VideoSubtitleTranslator -- doctor translate
 ```
 
-需要直接输入 `zimu` 或 `zm` 时，按下方[本地发布](#本地发布macoslinux)步骤生成可执行文件并配置 `PATH`。单独运行 `zimu` 或 `zm` 会打开命令行引导界面。`translate` 需要 FFmpeg/ffprobe、Python/Whisper、翻译配置和 LLM 凭据；URL 输入还会下载视频，因此也需要 `yt-dlp` 和网络。本地视频翻译不需要 `yt-dlp`。`download` 只需要翻译配置、`yt-dlp` 和网络（需要登录的网站可配置 cookies），不需要 Python、Whisper、FFmpeg 或 LLM 凭据。
+需要直接输入 `zimu` 或 `zm` 时，用下方的安装脚本把它们加入 `PATH`。单独运行 `zimu` 或 `zm` 会打开命令行引导界面。`translate` 需要 FFmpeg/ffprobe、Python/Whisper、翻译配置和 LLM 凭据；URL 输入还会下载视频，因此也需要 `yt-dlp` 和网络。本地视频翻译不需要 `yt-dlp`。`download` 只需要翻译配置、`yt-dlp` 和网络（需要登录的网站可配置 cookies），不需要 Python、Whisper、FFmpeg 或 LLM 凭据。
 
-## 本地发布（macOS/Linux）
+## 手动发布（不使用安装脚本时）
+
+自动化方式见下方[安装命令](#安装-zimu-与-zm-命令)；这一节适用于想自己控制发布目录、或需要把应用放到别的机器上的情况。
 
 `dotnet publish` 在本机生成应用文件，不会创建 GitHub Release，也不会自动安装 shell 命令。以下命令从仓库根目录运行，要求已安装 .NET 10 SDK：
 
@@ -68,6 +70,34 @@ zimu
 ```
 
 发布产物不会自动复制项目目录的 `.env`；应用会从发布目录或当前工作目录查找它。从其他目录启动时，应在 shell 中提供所需环境变量。默认输出工作区也取决于当前工作目录；需要固定位置时，请用 `zimu translate "<输入>" --workspace "<目录>"`。
+
+## 安装 zimu 与 zm 命令
+
+`zimu` 与 `zm` 是两个等效入口。安装脚本会构建当前配置（默认 `Release`）、把两个命令装到用户目录、加入 PATH，并各自跑一次 `--help` 自检：
+
+```powershell
+# Windows（PowerShell）
+.\VideoSubtitleTranslator\scripts\install.ps1
+```
+
+```sh
+# macOS / Linux
+./VideoSubtitleTranslator/scripts/install.sh
+```
+
+| 平台 | 默认安装位置 | 自定义 | 跳过 PATH 改写 |
+| --- | --- | --- | --- |
+| Windows | `%LOCALAPPDATA%\Programs\zimu` | `-InstallDir <目录>` | `-NoPathUpdate` |
+| macOS / Linux | `~/.local/bin` | `--prefix <目录>` | 手动加入 PATH |
+
+安装后需要重新打开终端让 PATH 生效，然后即可直接使用：
+
+```sh
+zimu translate <视频链接或本地路径>
+zm --help
+```
+
+安装脚本链接的是仓库内的构建产物（`VideoSubtitleTranslator/bin/<Configuration>/net10.0`），这样 Python 虚拟环境和提示词继续从仓库解析。移动或删除仓库后需要重新执行安装脚本。
 
 ## 功能
 
@@ -197,6 +227,8 @@ CLI 使用 `yt-dlp` 下载视频；视频链接同时带有播放列表参数时
 `.env` 通过环境变量提供本机密钥和可选路径；该文件已加入 `.gitignore`。配置 API Key 时只需设置 `DEEPSEEK_API_KEY`，配置项 `apiKeyEnv` 指向此环境变量。`COOKIES_FILE` 可选，用于将 cookies 文件路径提供给 yt-dlp；没有该文件时请移除示例配置。
 
 可通过 `VST_FFMPEG_PATH`、`VST_FFPROBE_PATH`、`VST_YTDLP_PATH`、`VST_PYTHON_PATH` 指定外部工具的可执行文件路径。Whisper 默认使用 `turbo` 模型；首次运行可能需要下载模型并等待缓存。
+
+任务历史默认写到用户配置目录（Windows 为 `%LOCALAPPDATA%\zimu\tasks`，macOS/Linux 为 `~/.local/share/zimu/tasks`）。该目录不可写时，用 `VST_TASK_DIR` 指向一个可写目录；`zimu translate` 也会直接提示这一点。
 
 ## 依赖检查
 

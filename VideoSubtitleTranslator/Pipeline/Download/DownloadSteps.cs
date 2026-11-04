@@ -21,7 +21,7 @@ public abstract class DownloadStepBase : IPipelineStep
 [PipelineStep("Download", Implementation = "Default")]
 public sealed class DefaultDownloadStep : DownloadStepBase
 {
-    private static ProcessStartInfo CreateYtDlpStartInfo(IEnumerable<string> arguments)
+    private static ProcessStartInfo CreateYtDlpStartInfo(IEnumerable<string> arguments, bool includeCookies)
     {
         var startInfo = new ProcessStartInfo
         {
@@ -33,19 +33,24 @@ public sealed class DefaultDownloadStep : DownloadStepBase
         };
         foreach (var argument in arguments) startInfo.ArgumentList.Add(argument);
 
-        var cookiesFile = Environment.GetEnvironmentVariable("COOKIES_FILE");
-        if (!string.IsNullOrWhiteSpace(cookiesFile) && File.Exists(cookiesFile))
+        if (includeCookies)
         {
-            startInfo.ArgumentList.Add("--cookies");
-            startInfo.ArgumentList.Add(cookiesFile);
-        }
-        else if (!string.IsNullOrWhiteSpace(GlobalRuntimeConfig.Current.CookiesFromBrowser))
-        {
-            startInfo.ArgumentList.Add("--cookies-from-browser");
-            startInfo.ArgumentList.Add(GlobalRuntimeConfig.Current.CookiesFromBrowser);
+            foreach (var argument in YtDlpCookieArguments.Build().Arguments)
+                startInfo.ArgumentList.Add(argument);
         }
 
         return startInfo;
+    }
+
+    private static int RunYtDlp(IEnumerable<string> arguments, bool includeCookies)
+    {
+        using var process = Process.Start(CreateYtDlpStartInfo(arguments, includeCookies));
+        if (process is null) throw new PipelineStageFailureException("无法启动 yt-dlp 进程。");
+        var stdoutTask = process.StandardOutput.ReadToEndAsync();
+        var stderrTask = process.StandardError.ReadToEndAsync();
+        process.WaitForExit();
+        Task.WaitAll(stdoutTask, stderrTask);
+        return process.ExitCode;
     }
 
     private static void DownloadThumbnail(string videoUrl, WorkDirs dirs)
@@ -56,39 +61,45 @@ public sealed class DefaultDownloadStep : DownloadStepBase
             return;
         }
 
-        using var process = Process.Start(CreateYtDlpStartInfo([
-            "--no-playlist", "--write-thumbnail", "--convert-thumbnails", "png", "--skip-download",
-            "-o", dirs.ThumbnailPath, videoUrl]));
-        if (process is null) return;
-        var stdoutTask = process.StandardOutput.ReadToEndAsync();
-        var stderrTask = process.StandardError.ReadToEndAsync();
-        process.WaitForExit();
-        Task.WaitAll(stdoutTask, stderrTask);
-        if (process.ExitCode != 0)
-            Console.Error.WriteLine($"缩略图下载失败（yt-dlp exit code {process.ExitCode}），继续下载视频。");
+        var exitCode = RunYtDlp(
+            ["--no-playlist", "--write-thumbnail", "--convert-thumbnails", "png", "--skip-download",
+             "-o", dirs.ThumbnailPath, videoUrl],
+            includeCookies: true);
+        if (exitCode != 0)
+            Console.Error.WriteLine($"缩略图下载失败（yt-dlp exit code {exitCode}），继续下载视频。");
     }
 
     private static void DownloadVideo(string videoUrl, WorkDirs dirs)
     {
-        if (File.Exists(dirs.VideoPath) && new FileInfo(dirs.VideoPath).Length > 0)
+        if (HasUsableVideo(dirs))
         {
             Console.WriteLine("Video exists, skip download");
             return;
         }
         if (File.Exists(dirs.VideoPath)) File.Delete(dirs.VideoPath);
 
-        using var process = Process.Start(CreateYtDlpStartInfo([
-            "--no-playlist", "--js-runtimes", "node", "--restrict-filenames", "-o", dirs.VideoPath, videoUrl]));
-        if (process is null) throw new PipelineStageFailureException("无法启动 yt-dlp 视频下载进程。");
-        var stdoutTask = process.StandardOutput.ReadToEndAsync();
-        var stderrTask = process.StandardError.ReadToEndAsync();
-        process.WaitForExit();
-        Task.WaitAll(stdoutTask, stderrTask);
-        if (process.ExitCode != 0)
-            throw new PipelineStageFailureException($"yt-dlp 视频下载失败（exit code {process.ExitCode}）。请检查链接、网络和 yt-dlp 配置。");
-        if (!File.Exists(dirs.VideoPath) || new FileInfo(dirs.VideoPath).Length == 0)
+        string[] videoArguments =
+            ["--no-playlist", "--js-runtimes", "node", "--restrict-filenames", "-o", dirs.VideoPath, videoUrl];
+
+        // 浏览器 cookies 是可选鉴权：浏览器运行时 yt-dlp 复制不了 cookie 数据库，
+        // 会直接失败；这种情况下去掉 cookies 再试一次。
+        var usedCookies = YtDlpCookieArguments.Build().UsedCookies;
+        var exitCode = RunYtDlp(videoArguments, includeCookies: usedCookies);
+
+        if ((exitCode != 0 || !HasUsableVideo(dirs)) && usedCookies)
+        {
+            Console.Error.WriteLine("yt-dlp 带 cookies 下载失败，去掉 cookies 重试一次。");
+            exitCode = RunYtDlp(videoArguments, includeCookies: false);
+        }
+
+        if (exitCode != 0)
+            throw new PipelineStageFailureException($"yt-dlp 视频下载失败（exit code {exitCode}）。请检查链接、网络和 yt-dlp 配置。");
+        if (!HasUsableVideo(dirs))
             throw new PipelineStageFailureException("yt-dlp 未生成预期的视频文件；请检查链接和下载器输出。");
     }
+
+    private static bool HasUsableVideo(WorkDirs dirs) =>
+        File.Exists(dirs.VideoPath) && new FileInfo(dirs.VideoPath).Length > 0;
 
     public override Dictionary<string, string> Execute(Dictionary<string, string> context)
     {
@@ -108,4 +119,3 @@ public sealed class DefaultDownloadStep : DownloadStepBase
         return context;
     }
 }
-
