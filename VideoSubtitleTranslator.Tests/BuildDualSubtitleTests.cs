@@ -70,6 +70,58 @@ public class BuildDualSubtitleTests
     }
 
     [Fact]
+    public void BuildAss_attaches_annotations_by_global_index()
+    {
+        // 15 条字幕，注释挂在第 12 条：跨批次时也必须落在正确的句子上。
+        var srtEntries = Enumerable.Range(1, 15)
+            .Select(i => new DefaultBuildDualSubtitleStep.SrtEntry
+            {
+                Index = i,
+                Start = $"0:00:{i:00}.000",
+                End = $"0:00:{i:00}.900",
+                Text = $"第{i}句"
+            })
+            .ToList();
+        var annotations = new List<DefaultBuildDualSubtitleStep.CulturalAnnotation>
+        {
+            new() { Index = 12, NeedsAnnotation = true, Annotation = "第十二句的注释" }
+        };
+
+        var ass = DefaultBuildDualSubtitleStep.BuildAss(srtEntries, annotations);
+
+        var dialogues = ass.Split('\n').Where(line => line.StartsWith("Dialogue:", StringComparison.Ordinal)).ToList();
+        Assert.Equal(15, dialogues.Count);
+        Assert.Single(dialogues.Where(line => line.Contains("第十二句的注释", StringComparison.Ordinal)));
+        Assert.Contains("第十二句的注释", dialogues[11]);
+        Assert.DoesNotContain("第十二句的注释", dialogues[0]);
+    }
+
+    [Fact]
+    public void Ass_timestamps_use_two_digit_centiseconds()
+    {
+        // ASS 的时间格式是 h:mm:ss.cc；沿用 SRT 的三位毫秒会让 libass 解析出错，
+        // 字幕整体滞后于画面（表现为"音画不同步"）。
+        Assert.Equal("0:02:08.58", DefaultBuildDualSubtitleStep.ToAssTimestamp("00:02:08,580"));
+        Assert.Equal("0:00:00.00", DefaultBuildDualSubtitleStep.ToAssTimestamp("00:00:00,000"));
+        Assert.Equal("1:01:02.99", DefaultBuildDualSubtitleStep.ToAssTimestamp("01:01:02,999"));
+    }
+
+    [Fact]
+    public void BuildAss_defines_a_play_resolution_so_text_does_not_overflow()
+    {
+        var srtEntries = new List<DefaultBuildDualSubtitleStep.SrtEntry>
+        {
+            new() { Index = 1, Start = "0:00:01.000", End = "0:00:03.000", Text = "很长的一句话" }
+        };
+
+        var ass = DefaultBuildDualSubtitleStep.BuildAss(srtEntries, []);
+
+        // 没有 PlayRes 时 libass 按 384x288 推算，字号会被放大且长句冲出画面。
+        Assert.Contains("PlayResX: 1920", ass);
+        Assert.Contains("PlayResY: 1080", ass);
+    }
+
+    [Fact]
     public void BuildAss_no_annotation_when_not_needed()
     {
         var srtEntries = new List<DefaultBuildDualSubtitleStep.SrtEntry>
