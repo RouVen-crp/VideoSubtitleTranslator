@@ -13,11 +13,39 @@ public abstract class CulturalAnnotateStepBase : IPipelineStep
 [PipelineStep("CulturalAnnotate", Implementation = "DeepSeek")]
 public sealed class DeepSeekCulturalAnnotateStep : CulturalAnnotateStepBase
 {
-    private sealed class AnnotationItem
+    internal sealed class AnnotationItem
     {
         public required int Index { get; init; }
         public required bool NeedsAnnotation { get; init; }
         public string Annotation { get; set; } = string.Empty;
+    }
+
+    /// <summary>
+    /// 把"批内序号"换算成"全片序号"后写入 <paramref name="target"/>。
+    /// 模型每批都从 1 开始编号，直接当全片序号用会让后面的字幕永远匹配不到注释。
+    /// </summary>
+    internal static void AddBatchAnnotations(
+        IDictionary<int, AnnotationItem> target,
+        IEnumerable<AnnotationItem> batchItems,
+        int batchStart,
+        int sentenceCount)
+    {
+        foreach (var item in batchItems)
+        {
+            var globalIndex = batchStart + item.Index;
+            if (globalIndex < 1 || globalIndex > sentenceCount)
+            {
+                // 模型偶尔多报一条或给出非法序号；丢弃而不是污染映射。
+                continue;
+            }
+
+            target[globalIndex] = new AnnotationItem
+            {
+                Index = globalIndex,
+                NeedsAnnotation = item.NeedsAnnotation,
+                Annotation = item.Annotation?.Trim() ?? string.Empty
+            };
+        }
     }
 
     private sealed class AnnotationResponse
@@ -193,7 +221,9 @@ public sealed class DeepSeekCulturalAnnotateStep : CulturalAnnotateStepBase
             File.WriteAllText(dirs.CulturalContextPath, string.Empty, Encoding.UTF8);
 
         var maxAttempts = Math.Max(1, GlobalRuntimeConfig.Current.Translation.ModuleJsonMaxAttempts);
-        var annotations = new List<AnnotationItem>();
+        // 模型是按批编号（每批 1..N）返回的，写盘前必须换算成全片序号，
+        // 否则 BuildDualSubtitle 按全片序号匹配时只有前 10 句能找到注释。
+        var annotations = new SortedDictionary<int, AnnotationItem>();
         var batchSize = 10;
         var config = GlobalRuntimeConfig.Current;
 
@@ -217,15 +247,7 @@ public sealed class DeepSeekCulturalAnnotateStep : CulturalAnnotateStepBase
                 throw new InvalidOperationException(
                     $"CulturalAnnotate batch {batchStart / batchSize + 1} failed after {maxAttempts} attempts.");
 
-            foreach (var item in parsed.Annotations)
-            {
-                annotations.Add(new AnnotationItem
-                {
-                    Index = item.Index > 0 ? item.Index : batchStart + annotations.Count % batchSize + 1,
-                    NeedsAnnotation = item.NeedsAnnotation,
-                    Annotation = item.Annotation?.Trim() ?? string.Empty
-                });
-            }
+            AddBatchAnnotations(annotations, parsed.Annotations, batchStart, translatedLines.Count);
 
             ApplyTermEdits(parsed.TermEdits, termTable);
             if (!string.IsNullOrWhiteSpace(parsed.ContextUpdate))
@@ -237,7 +259,7 @@ public sealed class DeepSeekCulturalAnnotateStep : CulturalAnnotateStepBase
         SaveTable(dirs.CulturalTermTablePath, termTable);
         File.WriteAllText(dirs.CulturalContextPath, contextText, Encoding.UTF8);
 
-        var json = JsonSerializer.Serialize(annotations,
+        var json = JsonSerializer.Serialize(annotations.Values,
             new JsonSerializerOptions { WriteIndented = true, PropertyNamingPolicy = JsonNamingPolicy.CamelCase });
         File.WriteAllText(dirs.CulturalAnnotationsPath, json, Encoding.UTF8);
     }
