@@ -1,4 +1,5 @@
 using System.Text;
+using VideoSubtitleTranslator.Pipeline;
 using VideoSubtitleTranslator.Workbench;
 
 namespace VideoSubtitleTranslator.Cli;
@@ -9,17 +10,23 @@ internal static class BilingualSubtitleBuilder
     {
         var source = SrtCodec.Read(sourceSubtitlePath);
         var translated = SrtCodec.Read(translatedSubtitlePath);
-        if (source.Count == 0 || source.Count != translated.Count)
-            throw new InvalidOperationException("源字幕与译文字幕条数不一致，无法生成双语 SRT。");
+        if (translated.Count == 0 || source.Count == 0)
+            throw new InvalidOperationException("缺少源字幕或译文字幕，无法生成双语 SRT。");
 
-        if (source.Where((item, index) => item.StartMs != translated[index].StartMs || item.EndMs != translated[index].EndMs).Any())
-            throw new InvalidOperationException("源字幕与译文字幕时间不一致，无法安全对齐生成双语 SRT。");
+        // 校对会合并相邻句，译文的条数可能少于英文原文行；按时间重叠配对，不能按序号。
+        var sourceLines = SubtitlePairing.PairTexts(
+            translated.Select(item => new SubtitleLine(item.StartMs, item.EndMs, item.SourceText)).ToList(),
+            source.Select(item => new SubtitleLine(item.StartMs, item.EndMs, item.SourceText)).ToList());
 
-        var bilingual = source.Select((item, index) => new SubtitleItem
+        var bilingual = translated.Select((item, index) =>
         {
-            StartMs = item.StartMs,
-            EndMs = item.EndMs,
-            SourceText = $"{item.SourceText}\n{translated[index].SourceText}"
+            var english = sourceLines[index];
+            return new SubtitleItem
+            {
+                StartMs = item.StartMs,
+                EndMs = item.EndMs,
+                SourceText = string.IsNullOrWhiteSpace(english) ? item.SourceText : $"{english}\n{item.SourceText}"
+            };
         }).ToList();
         var content = SrtCodec.Write(bilingual, item => item.SourceText);
         Directory.CreateDirectory(workspacePath);

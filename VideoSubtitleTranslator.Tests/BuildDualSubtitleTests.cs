@@ -145,4 +145,30 @@ public class BuildDualSubtitleTests
 
         Assert.Equal("hello\\\\nworld", escaped);
     }
+
+    [Fact]
+    public void BuildAss_pairs_english_lines_by_time_after_chinese_blocks_were_merged()
+    {
+        // 校对把前两句合并成一个中文块后，英文原文行仍应按时间落在正确的 Dialogue 上。
+        var srtEntries = new List<DefaultBuildDualSubtitleStep.SrtEntry>
+        {
+            new() { Index = 1, Start = "00:00:00.000", End = "00:00:02.000", Text = "合并后的一句" },
+            new() { Index = 2, Start = "00:00:02.000", End = "00:00:03.000", Text = "第三句" }
+        };
+        var english = new List<SubtitleLine>
+        {
+            new(0, 1000, "First line."),
+            new(1000, 2000, "Second line."),
+            new(2000, 3000, "Third line.")
+        };
+
+        var ass = DefaultBuildDualSubtitleStep.BuildAss(srtEntries, [], english);
+        var dialogues = ass.Split('\n').Where(line => line.StartsWith("Dialogue:", StringComparison.Ordinal)).ToList();
+
+        Assert.Equal(2, dialogues.Count);
+        Assert.Contains("First line.", dialogues[0]);
+        Assert.Contains("Second line.", dialogues[0]);
+        Assert.Contains("Third line.", dialogues[1]);
+        Assert.DoesNotContain("Third line.", dialogues[0]);
+    }
 }
