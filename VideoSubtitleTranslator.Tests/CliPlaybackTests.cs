@@ -59,7 +59,7 @@ public sealed class CliPlaybackTests
     }
 
     [Fact]
-    public async Task Vlc_receives_the_subtitle_as_a_file_url()
+    public async Task Vlc_receives_the_subtitle_as_an_absolute_file_path()
     {
         using var temp = new TemporaryDirectory();
         var videoPath = Path.Combine(temp.Path, "video.mp4");
@@ -75,7 +75,7 @@ public sealed class CliPlaybackTests
         service.Play(videoPath, subtitlePath);
 
         Assert.Equal(
-            [$"--sub-url={new Uri(Path.GetFullPath(subtitlePath)).AbsoluteUri}", Path.GetFullPath(videoPath)],
+            [$"--sub-file={Path.GetFullPath(subtitlePath)}", Path.GetFullPath(videoPath)],
             arguments);
     }
 

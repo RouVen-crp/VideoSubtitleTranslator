@@ -128,6 +128,28 @@ public sealed class CliCommandTests
         Assert.Null(workflow.DownloadRequest);
     }
 
+    [Theory]
+    [InlineData("history", "用法：zimu history", "列出翻译任务")]
+    [InlineData("resume", "用法：zimu resume <任务ID>", "可能会重新执行并产生费用")]
+    [InlineData("doctor", "用法：zimu doctor", "检查指定任务所需的本地配置和依赖")]
+    public async Task Subcommand_help_shows_usage_and_examples_without_running_the_workflow(
+        string command, string usage, string description)
+    {
+        var workflow = new RecordingTranslationWorkflow(Path.Combine(Path.GetTempPath(), "unused.srt"));
+        using var output = new StringWriter();
+        using var error = new StringWriter();
+
+        var exitCode = await CliApplication.RunAsync(
+            [command, "--help"], workflow, output, error, false, Path.GetTempPath());
+
+        Assert.Equal(0, exitCode);
+        Assert.Contains(usage, output.ToString());
+        Assert.Contains("示例：", output.ToString());
+        Assert.Contains(description, output.ToString());
+        Assert.Empty(error.ToString());
+        Assert.Null(workflow.Request);
+    }
+
     [Fact]
     public async Task Download_failure_returns_actionable_nonzero_result_without_stack_trace()
     {
