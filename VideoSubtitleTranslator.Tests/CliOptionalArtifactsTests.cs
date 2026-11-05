@@ -66,7 +66,7 @@ public sealed class CliOptionalArtifactsTests
             executable = path;
             arguments = args;
             workingDirectory = directory;
-            subtitleCopiedForFfmpeg = File.Exists(Path.Combine(directory, "subtitle.srt"));
+            subtitleCopiedForFfmpeg = File.Exists(Path.Combine(directory, "subtitle.ass"));
             File.WriteAllText(args[^1], "burned video");
             return Task.FromResult(0);
         });
@@ -80,7 +80,10 @@ public sealed class CliOptionalArtifactsTests
         Assert.Contains("-n", arguments!);
         Assert.Contains("-i", arguments!);
         Assert.Equal(fixture.LastBurnedPath, arguments![^1]);
-        Assert.Contains("subtitle.srt", arguments[Array.IndexOf(arguments.ToArray(), "-vf") + 1]);
+        // 烧录默认现场合成中英双语 ASS。
+        var burnFilter = arguments[Array.IndexOf(arguments.ToArray(), "-vf") + 1];
+        Assert.StartsWith("ass=", burnFilter);
+        Assert.Contains("subtitle.ass", burnFilter);
         Assert.True(subtitleCopiedForFfmpeg);
         Assert.False(string.IsNullOrWhiteSpace(workingDirectory));
         Assert.Contains(Path.GetFullPath(fixture.LastBurnedPath!), output.ToString());
@@ -134,7 +137,10 @@ public sealed class CliOptionalArtifactsTests
         Assert.Equal(0, exit);
         Assert.Contains(fixture.Config!.Steps, step => step.Step == "BuildDualSubtitle");
         Assert.Contains("subtitle.ass", arguments![Array.IndexOf(arguments.ToArray(), "-vf") + 1]);
-        Assert.Contains("cultural dual track", subtitleContentsSeenByFfmpeg);
+        // 烧录字幕里应同时出现英文、中文和文化注释。
+        Assert.Contains("Hello there", subtitleContentsSeenByFfmpeg);
+        Assert.Contains("你好", subtitleContentsSeenByFfmpeg);
+        Assert.Contains("文化注释测试", subtitleContentsSeenByFfmpeg);
         Assert.False(string.IsNullOrWhiteSpace(workingDirectory));
         Assert.Contains("输出根目录：", error.ToString());
     }
@@ -207,7 +213,11 @@ public sealed class CliOptionalArtifactsTests
                     File.WriteAllText(dirs.ProofreadSubtitlePath,
                         "1\n00:00:00,000 --> 00:00:01,000\n你好\n\n");
                     if (context["Mode"] == "meme")
+                    {
                         File.WriteAllText(dirs.DualSubtitlePath, "cultural dual track");
+                        File.WriteAllText(dirs.CulturalAnnotationsPath,
+                            "[{\"index\":1,\"needsAnnotation\":true,\"annotation\":\"文化注释测试\"}]");
+                    }
                     LastSubtitlePath = dirs.ProofreadSubtitlePath;
                     LastBilingualPath = Path.Combine(context["WorkspacePath"], "translated_bilingual.srt");
                     LastBurnedPath = Path.Combine(context["WorkspacePath"], "burned_video.mp4");
