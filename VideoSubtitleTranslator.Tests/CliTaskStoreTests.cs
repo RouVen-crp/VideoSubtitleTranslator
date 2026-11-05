@@ -196,6 +196,61 @@ public sealed class CliTaskStoreTests
     }
 
     [Fact]
+    public void Resume_after_proofread_does_not_repeat_translate_or_proofread()
+    {
+        using var temp = new TemporaryDirectory();
+        var store = new CliTaskStore(Path.Combine(temp.Path, "tasks"));
+        var task = store.Create(new TranslationRequest("https://example.com/video", "standard", temp.Path));
+        var steps = new PipelineConfig
+        {
+            Steps = [new() { Step = "Translate" }, new() { Step = "ProofreadSubtitle" }, new() { Step = "BuildDualSubtitle" }]
+        };
+        var translateRuns = 0;
+        var proofreadRuns = 0;
+        var buildRuns = 0;
+        var failFirstBuild = true;
+        var runner = new CliPipelineExecutor(store, (step, context, _) =>
+        {
+            var dirs = new WorkDirs(context["WorkspacePath"], context["VideoExt"]);
+            switch (step.Step)
+            {
+                case "Translate":
+                    translateRuns++;
+                    File.WriteAllText(dirs.TranslatedSubtitlePath, "translated");
+                    break;
+                case "ProofreadSubtitle":
+                    // 校对只写自己的产物，不改写 Translate 的 translated_subtitle.srt。
+                    proofreadRuns++;
+                    File.WriteAllText(dirs.ProofreadSubtitlePath, "proofread");
+                    break;
+                case "BuildDualSubtitle":
+                    buildRuns++;
+                    if (failFirstBuild)
+                    {
+                        failFirstBuild = false;
+                        throw new InvalidOperationException("controlled interruption after proofread");
+                    }
+                    File.WriteAllText(dirs.DualSubtitlePath, "ass");
+                    break;
+            }
+            return context;
+        });
+        var context = new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase)
+        {
+            ["WorkspacePath"] = temp.Path, ["VideoExt"] = ".mp4"
+        };
+        var runtime = new TranslatorRuntimeConfig();
+
+        Assert.Throws<InvalidOperationException>(() => runner.Execute(steps, context, runtime, task));
+        Assert.Equal((1, 1, 1), (translateRuns, proofreadRuns, buildRuns));
+
+        runner.Execute(steps, task.Context, runtime, task);
+
+        // 校对成功过的任务恢复时，Translate 与 ProofreadSubtitle 都不应重跑。
+        Assert.Equal((1, 1, 2), (translateRuns, proofreadRuns, buildRuns));
+    }
+
+    [Fact]
     public void Resume_repeats_an_unfinished_model_stage_after_earlier_checkpoint_is_reused()
     {
         using var temp = new TemporaryDirectory();

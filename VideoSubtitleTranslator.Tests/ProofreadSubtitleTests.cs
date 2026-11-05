@@ -4,6 +4,7 @@ using System.Net.Sockets;
 using System.Text;
 using System.Text.Json;
 using VideoSubtitleTranslator.Pipeline;
+using VideoSubtitleTranslator.Workbench;
 
 namespace VideoSubtitleTranslator.Tests;
 
@@ -70,45 +71,30 @@ public sealed class ProofreadSubtitleTests
             "2\n00:00:01,000 --> 00:00:02,000\nSame line.\n\n" +
             "3\n00:00:02,000 --> 00:00:03,000\nA different line.\n\n" +
             "4\n00:00:03,000 --> 00:00:04,000\nA different line.\n\n");
-        using var portReservation = new TcpListener(System.Net.IPAddress.Loopback, 0);
-        portReservation.Start();
-        var port = ((System.Net.IPEndPoint)portReservation.LocalEndpoint).Port;
-        portReservation.Stop();
-        using var listener = new HttpListener();
-        listener.Prefixes.Add($"http://127.0.0.1:{port}/");
-        listener.Start();
-        var requestTimes = new List<long>();
-        var server = Task.Run(async () =>
+        var requestTimes = new System.Collections.Concurrent.ConcurrentQueue<long>();
+        using var server = new LoopbackHttpServer(_ =>
         {
-            for (var i = 0; i < 2; i++)
+            requestTimes.Enqueue(Stopwatch.GetTimestamp());
+            var index = requestTimes.Count - 1;
+            var firstStart = index == 0 ? "00:00:00,000" : "00:00:02,000";
+            var firstEnd = index == 0 ? "00:00:01,000" : "00:00:03,000";
+            var secondStart = index == 0 ? "00:00:01,000" : "00:00:03,000";
+            var secondEnd = index == 0 ? "00:00:02,000" : "00:00:04,000";
+            var proofreadContent = JsonSerializer.Serialize(new
             {
-                var context = await listener.GetContextAsync();
-                requestTimes.Add(Stopwatch.GetTimestamp());
-                var firstStart = i == 0 ? "00:00:00,000" : "00:00:02,000";
-                var firstEnd = i == 0 ? "00:00:01,000" : "00:00:03,000";
-                var secondStart = i == 0 ? "00:00:01,000" : "00:00:03,000";
-                var secondEnd = i == 0 ? "00:00:02,000" : "00:00:04,000";
-                var proofreadContent = JsonSerializer.Serialize(new
+                items = new[]
                 {
-                    items = new[]
-                    {
-                        new { start = firstStart, end = firstEnd, text = "Same line." },
-                        new { start = secondStart, end = secondEnd, text = "Same line." }
-                    }
-                });
-                var response = JsonSerializer.Serialize(new
-                {
-                    choices = new[] { new { message = new { content = proofreadContent } } }
-                });
-                var bytes = Encoding.UTF8.GetBytes(response);
-                context.Response.ContentType = "application/json";
-                context.Response.ContentLength64 = bytes.Length;
-                await context.Response.OutputStream.WriteAsync(bytes);
-                context.Response.Close();
-            }
+                    new { start = firstStart, end = firstEnd, text = "Same line." },
+                    new { start = secondStart, end = secondEnd, text = "Same line." }
+                }
+            });
+            return JsonSerializer.Serialize(new
+            {
+                choices = new[] { new { message = new { content = proofreadContent } } }
+            });
         });
         var runtime = new TranslatorRuntimeConfig();
-        runtime.Llm.BaseUrl = $"http://127.0.0.1:{port}/";
+        runtime.Llm.BaseUrl = server.BaseUrl;
         runtime.Llm.RetryCount = 0;
         runtime.Translation.RequestDelayMs = 180;
         runtime.Translation.ProofreadJsonMaxAttempts = 1;
@@ -126,10 +112,11 @@ public sealed class ProofreadSubtitleTests
                 ["VideoTitle"] = "lesson"
             },
             runtime);
-        await server.WaitAsync(TimeSpan.FromSeconds(10));
+        await server.WaitForRequestsAsync(2, TimeSpan.FromSeconds(10));
 
-        Assert.Equal(2, requestTimes.Count);
-        Assert.True(Stopwatch.GetElapsedTime(requestTimes[0], requestTimes[1]) >= TimeSpan.FromMilliseconds(150));
+        var times = requestTimes.ToArray();
+        Assert.Equal(2, times.Length);
+        Assert.True(Stopwatch.GetElapsedTime(times[0], times[1]) >= TimeSpan.FromMilliseconds(150));
     }
 
     [Fact]
@@ -170,6 +157,56 @@ public sealed class ProofreadSubtitleTests
 
         Assert.Equal("source subtitle", File.ReadAllText(Path.Combine(temp.Path, "video.srt")));
         Assert.Contains("transcribed", File.ReadAllText(dirs.SubtitlePath));
+    }
+
+    [Fact]
+    public async Task Proofread_writes_its_own_artifact_without_overwriting_the_translate_artifact()
+    {
+        using var temp = new TemporaryDirectory();
+        Directory.CreateDirectory(temp.Path);
+        var dirs = new WorkDirs(temp.Path, ".mp4");
+        var original = "1\n00:00:00,000 --> 00:00:01,000\n同一句话。\n\n" +
+                       "2\n00:00:01,000 --> 00:00:02,000\n同一句话。\n\n";
+        File.WriteAllText(dirs.TranslatedSubtitlePath, original);
+
+        // 用 TcpListener 替身而不是 HttpListener：受限环境里 http.sys 注册会失败。
+        using var server = new LoopbackHttpServer(_ =>
+        {
+            var merged = JsonSerializer.Serialize(new
+            {
+                items = new[] { new { start = "00:00:00,000", end = "00:00:02,000", text = "同一句话。" } }
+            });
+            return JsonSerializer.Serialize(new
+            {
+                choices = new[] { new { message = new { content = merged } } }
+            });
+        });
+
+        var runtime = new TranslatorRuntimeConfig();
+        runtime.Llm.BaseUrl = server.BaseUrl;
+        runtime.Llm.RetryCount = 0;
+        runtime.Translation.ProofreadEnabled = true;
+        runtime.Translation.ProofreadJsonMaxAttempts = 1;
+
+        new PipelineRunner(new PipelineRegistry()).Run(
+            new PipelineConfig
+            {
+                Steps = [new PipelineStepConfig { Step = "ProofreadSubtitle", Implementation = "DeepSeek" }]
+            },
+            new Dictionary<string, string>
+            {
+                ["WorkspacePath"] = temp.Path,
+                ["VideoExt"] = ".mp4",
+                ["VideoTitle"] = "lesson"
+            },
+            runtime);
+        await server.WaitForRequestsAsync(1, TimeSpan.FromSeconds(10));
+
+        // 校对合并了相邻句，但 Translate 的产物必须保持原样：它是 Translate 检查点的哈希来源。
+        Assert.Equal(original, File.ReadAllText(dirs.TranslatedSubtitlePath));
+        var proofread = SrtCodec.Read(dirs.ProofreadSubtitlePath);
+        Assert.Single(proofread);
+        Assert.Equal("同一句话。", proofread[0].SourceText);
     }
 
     private sealed class TemporaryDirectory : IDisposable
