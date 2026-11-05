@@ -11,7 +11,47 @@ public class BurnSubtitleDualTrackTests
         var args = DefaultBurnSubtitleStep.BuildFfmpegArgs(
             dirs, "/tmp/vid/out.mp4", "h264_nvenc", "high", 5000, "/tmp/vid/dual_subtitle.ass");
 
-        Assert.Contains("\"subtitles='/tmp/vid/dual_subtitle.ass'\"", args);
+        Assert.Contains("\"ass='/tmp/vid/dual_subtitle.ass'\"", args);
+        Assert.DoesNotContain("subtitles=", args);
+    }
+
+    [Theory]
+    [InlineData("dual_subtitle.ass", "ass")]
+    [InlineData("dual_subtitle.ssa", "ass")]
+    [InlineData("translated_subtitle.srt", "subtitles")]
+    public void BuildFfmpegArgs_selects_filter_by_subtitle_extension(string fileName, string expectedFilter)
+    {
+        var dirs = new WorkDirs("/tmp/vid", ".mp4");
+        var args = DefaultBurnSubtitleStep.BuildFfmpegArgs(
+            dirs, "/tmp/vid/out.mp4", "h264_nvenc", "high", 5000, $"/tmp/vid/{fileName}");
+
+        Assert.Contains($"-vf \"{expectedFilter}='/tmp/vid/{fileName}'\"", args);
+        var otherFilter = expectedFilter == "ass" ? "subtitles" : "ass";
+        Assert.DoesNotContain($"{otherFilter}=", args);
+    }
+
+    [Theory]
+    [InlineData("ass")]
+    [InlineData("ssa")]
+    [InlineData("srt")]
+    public void BuildFfmpegArgs_uses_ass_filter_for_ass_like_extensions_in_low_quality_branch(string extension)
+    {
+        var dirs = new WorkDirs("/tmp/vid", ".mp4");
+        var args = DefaultBurnSubtitleStep.BuildFfmpegArgs(
+            dirs, "/tmp/vid/out.mp4", "libx264", "auto", null, $"/tmp/vid/subtitle.{extension}");
+
+        var expectedFilter = extension is "ass" or "ssa" ? "ass" : "subtitles";
+        Assert.Contains($"-vf \"{expectedFilter}='", args);
+        Assert.Contains("-c:a copy", args);
+        Assert.DoesNotContain("-b:v", args);
+    }
+
+    [Fact]
+    public void EscapeSubtitleFilterPath_escapes_single_quotes()
+    {
+        var escaped = DefaultBurnSubtitleStep.EscapeSubtitleFilterPath("/tmp/it's a subtitle.srt");
+
+        Assert.Equal("/tmp/it'\\''s a subtitle.srt", escaped);
     }
 
     [Fact]

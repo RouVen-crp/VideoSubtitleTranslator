@@ -69,19 +69,29 @@ public sealed class DefaultBurnSubtitleStep : BurnSubtitleStepBase
             ? $" -b:v {targetBitrateKbps.Value}k -maxrate {targetBitrateKbps.Value}k -bufsize {targetBitrateKbps.Value * 2}k"
             : string.Empty;
         var escapedSubtitlePath = EscapeSubtitleFilterPath(subtitlePath);
+        // ASS/SSA 是带样式的字幕，必须走 ass 滤镜；普通字幕（如 SRT）走 subtitles 滤镜。
+        var subtitleFilter = IsAssSubtitle(subtitlePath) ? "ass" : "subtitles";
 
         if (!string.Equals(qualityPreset?.Trim(), "high", StringComparison.OrdinalIgnoreCase) && !targetBitrateKbps.HasValue)
-            return $"-i \"{dirs.VideoPath}\" -vf \"subtitles='{escapedSubtitlePath}'\" -c:a copy \"{outputPath}\"";
+            return $"-i \"{dirs.VideoPath}\" -vf \"{subtitleFilter}='{escapedSubtitlePath}'\" -c:a copy \"{outputPath}\"";
 
         return
-            $"-i \"{dirs.VideoPath}\" -vf \"subtitles='{escapedSubtitlePath}'\" -c:v {encoder}{bitrateArgs} -c:a copy \"{outputPath}\"";
+            $"-i \"{dirs.VideoPath}\" -vf \"{subtitleFilter}='{escapedSubtitlePath}'\" -c:v {encoder}{bitrateArgs} -c:a copy \"{outputPath}\"";
+    }
+
+    private static bool IsAssSubtitle(string subtitlePath)
+    {
+        var extension = Path.GetExtension(subtitlePath);
+        return string.Equals(extension, ".ass", StringComparison.OrdinalIgnoreCase)
+               || string.Equals(extension, ".ssa", StringComparison.OrdinalIgnoreCase);
     }
 
     internal static string EscapeSubtitleFilterPath(string subtitlePath)
     {
         return subtitlePath
             .Replace('\\', '/')
-            .Replace(":", "\\:");
+            .Replace(":", "\\:")
+            .Replace("'", "'\\''");
     }
 
     internal static void EnsureFfmpegSucceeded(int exitCode)
