@@ -66,7 +66,7 @@ public sealed class DefaultBuildDualSubtitleStep : BuildDualSubtitleStepBase
     internal static string BuildAss(
         IReadOnlyList<SrtEntry> srtEntries,
         IReadOnlyList<CulturalAnnotation> annotations,
-        IReadOnlyList<string>? englishLines = null)
+        IReadOnlyList<SubtitleLine>? sourceLines = null)
     {
         var annotationByIndex = new Dictionary<int, CulturalAnnotation>();
         foreach (var annotation in annotations)
@@ -77,12 +77,16 @@ public sealed class DefaultBuildDualSubtitleStep : BuildDualSubtitleStepBase
             }
         }
 
+        // 校对会合并相邻句，中文块与英文源行的条数不再相等；按时间重叠配对，不能按序号。
+        var pairedSourceLines = SubtitlePairing.PairTexts(
+            srtEntries.Select(entry => new SubtitleLine(
+                ParseMilliseconds(entry.Start), ParseMilliseconds(entry.End), entry.Text)).ToList(),
+            sourceLines);
+
         // 先按排版规则断句、分配时长，再渲染。
-        var source = srtEntries.Select(entry =>
+        var source = srtEntries.Select((entry, position) =>
         {
-            var english = englishLines is not null && entry.Index - 1 < englishLines.Count
-                ? englishLines[entry.Index - 1]?.Trim()
-                : null;
+            var english = pairedSourceLines[position]?.Trim();
             var note = annotationByIndex.TryGetValue(entry.Index, out var found) ? found.Annotation?.Trim() : null;
             return new SubtitleLayout.Cue(
                 ParseSeconds(entry.Start),
@@ -141,6 +145,13 @@ public sealed class DefaultBuildDualSubtitleStep : BuildDualSubtitleStepBase
     {
         return TimeSpan.TryParse(timestamp.Replace(',', '.'), System.Globalization.CultureInfo.InvariantCulture, out var value)
             ? value.TotalSeconds
+            : 0;
+    }
+
+    internal static int ParseMilliseconds(string timestamp)
+    {
+        return TimeSpan.TryParse(timestamp.Replace(',', '.'), System.Globalization.CultureInfo.InvariantCulture, out var value)
+            ? (int)Math.Max(0, value.TotalMilliseconds)
             : 0;
     }
 
@@ -218,15 +229,19 @@ public sealed class DefaultBuildDualSubtitleStep : BuildDualSubtitleStepBase
 
     /// <summary>
     /// 英文原文行（用于把中英双语一起烧进视频）。缺文件时返回 null，退化为只有中文。
+    /// 保留时间范围，供 <see cref="SubtitlePairing"/> 与校对合并后的中文块配对。
     /// </summary>
-    internal static IReadOnlyList<string>? ReadEnglishLines(WorkDirs dirs)
+    internal static IReadOnlyList<SubtitleLine>? ReadEnglishLines(WorkDirs dirs)
     {
         if (!File.Exists(dirs.NormalizedSubtitlePath))
         {
             return null;
         }
 
-        return ParseSrt(dirs.NormalizedSubtitlePath).Select(entry => entry.Text).ToList();
+        return ParseSrt(dirs.NormalizedSubtitlePath)
+            .Select(entry => new SubtitleLine(
+                ParseMilliseconds(entry.Start), ParseMilliseconds(entry.End), entry.Text))
+            .ToList();
     }
 
     public override Dictionary<string, string> Execute(Dictionary<string, string> context)

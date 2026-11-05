@@ -35,9 +35,8 @@ public sealed class VideoPlaybackService
         {
             try
             {
-                var subtitleArgument = Path.GetFileNameWithoutExtension(player).Equals("vlc", StringComparison.OrdinalIgnoreCase)
-                    ? $"--sub-url={new Uri(absoluteSubtitlePath).AbsoluteUri}"
-                    : $"--sub-file={absoluteSubtitlePath}";
+                // mpv 与 VLC 都支持 --sub-file=<绝对路径>；直接传本地文件路径比 URL 形式更稳定。
+                var subtitleArgument = $"--sub-file={absoluteSubtitlePath}";
                 _startPlayer(player, [subtitleArgument, absoluteVideoPath]);
                 return new VideoPlaybackResult(absoluteVideoPath, absoluteSubtitlePath, UsedCompatiblePlayer: true);
             }

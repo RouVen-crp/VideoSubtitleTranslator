@@ -60,4 +60,34 @@ public sealed class StageRecoveryTests
             if (Directory.Exists(root)) Directory.Delete(root, recursive: true);
         }
     }
+
+    [Fact]
+    public void Translate_checkpoint_stays_valid_after_proofread_writes_its_own_artifact()
+    {
+        var root = Path.Combine(Path.GetTempPath(), "vst-recovery-" + Guid.NewGuid().ToString("N"));
+        Directory.CreateDirectory(root);
+        try
+        {
+            var translated = Path.Combine(root, "translated_subtitle.srt");
+            var proofread = Path.Combine(root, "translated_subtitle.proofread.srt");
+            File.WriteAllText(translated, "translated");
+            File.WriteAllText(proofread, "proofread");
+            var checkpoints = new Dictionary<string, StageCheckpoint>
+            {
+                ["Translate"] = new("Translate", translated, StageRecovery.ComputeSha256(translated), DateTimeOffset.UtcNow),
+                ["ProofreadSubtitle"] = new("ProofreadSubtitle", proofread, StageRecovery.ComputeSha256(proofread), DateTimeOffset.UtcNow)
+            };
+
+            var plan = StageRecovery.Plan(["Translate", "ProofreadSubtitle"], checkpoints,
+                stage => stage == "Translate" ? translated : proofread);
+
+            // 校对写自己的产物，Translate 的产物保持不变 → 两个检查点都有效，恢复不必重跑模型。
+            Assert.Equal(2, plan.ResumeIndex);
+            Assert.Empty(plan.InvalidatedStages);
+        }
+        finally
+        {
+            if (Directory.Exists(root)) Directory.Delete(root, recursive: true);
+        }
+    }
 }

@@ -333,8 +333,10 @@ public sealed class DeepSeekProofreadSubtitleStep : ProofreadSubtitleStepBase
         output.Add(left);
         logWriter.WriteLine(
             $"[end] inputBlocks={source.Count}, outputBlocks={output.Count}, modelInvocations={invokedCount}, mergedPairs={mergeCount}, rejectedMerges={rejectCount}, ts={DateTime.UtcNow:O}");
+        // 阶段产物归阶段所有：只写校对产物，不改写 Translate 的 translated_subtitle.srt。
+        // CLI 检查点与 Workbench StageRecovery 用该文件的哈希判定 Translate 是否可复用；
+        // 一旦覆写，恢复时会把 Translate 判定失效，重复执行两段模型调用。
         WriteSrt(dirs.ProofreadSubtitlePath, output);
-        WriteSrt(dirs.TranslatedSubtitlePath, output);
     }
 
     private static void ReportPairProgress(int completedPairs, int totalPairs)

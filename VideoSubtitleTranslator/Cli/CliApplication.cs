@@ -50,8 +50,7 @@ public static class CliApplication
         {
             if (args.Length == 2 && IsHelp(args[1]))
             {
-                standardOutput.WriteLine("用法：zimu doctor [download|translate]");
-                standardOutput.WriteLine("检查指定任务所需的本地配置和依赖；不会显示任何凭据值。");
+                WriteDoctorHelp(standardOutput);
                 return Success;
             }
             if (args.Length > 2 || (args.Length == 2 && args[1] is not ("download" or "translate")))
@@ -73,6 +72,11 @@ public static class CliApplication
 
         if (string.Equals(args[0], "history", StringComparison.OrdinalIgnoreCase))
         {
+            if (args.Length == 2 && IsHelp(args[1]))
+            {
+                WriteHistoryHelp(standardOutput);
+                return Success;
+            }
             if (workflow is not ICliTaskWorkflow taskWorkflow || args.Length != 1)
             {
                 standardError.WriteLine("用法：zimu history");
@@ -100,6 +104,11 @@ public static class CliApplication
 
         if (string.Equals(args[0], "resume", StringComparison.OrdinalIgnoreCase))
         {
+            if (args.Length == 2 && IsHelp(args[1]))
+            {
+                WriteResumeHelp(standardOutput);
+                return Success;
+            }
             if (workflow is not ICliTaskWorkflow taskWorkflow || args.Length != 2 || !CliTaskStore.IsValidId(args[1]))
             {
                 standardError.WriteLine("用法：zimu resume <任务ID>");
@@ -586,6 +595,31 @@ public static class CliApplication
         writer.WriteLine($"  默认输出根目录：{Program.ResolveDefaultWorkspace(currentDirectory)}");
         writer.WriteLine("  视频和字幕保存在该目录下按视频标题创建的任务子目录。");
         writer.WriteLine();
+    }
+
+    private static void WriteDoctorHelp(TextWriter writer)
+    {
+        writer.WriteLine("用法：zimu doctor [download|translate]");
+        writer.WriteLine("示例：zimu doctor");
+        writer.WriteLine("      zimu doctor download");
+        writer.WriteLine("      zimu doctor translate");
+        writer.WriteLine("检查指定任务所需的本地配置和依赖；不会显示任何凭据值。");
+    }
+
+    private static void WriteHistoryHelp(TextWriter writer)
+    {
+        writer.WriteLine("用法：zimu history");
+        writer.WriteLine("示例：zimu history");
+        writer.WriteLine("列出翻译任务的状态、队列位置、创建时间和当前阶段。");
+        writer.WriteLine("运行 zimu resume <任务ID> 恢复失败或中断的任务；--help 查看命令示例。");
+    }
+
+    private static void WriteResumeHelp(TextWriter writer)
+    {
+        writer.WriteLine("用法：zimu resume <任务ID>");
+        writer.WriteLine("示例：zimu resume a1b2c3d4");
+        writer.WriteLine("恢复失败或中断的任务；尚未完成的模型请求可能会重新执行并产生费用。");
+        writer.WriteLine("运行 zimu history 查看任务 ID。");
     }
 
     private static void WritePlayHelp(TextWriter writer)

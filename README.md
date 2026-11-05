@@ -10,13 +10,23 @@
 
 ## 快速开始
 
-开发环境需要 .NET 10 SDK。按任务运行对应的依赖检查；已安装在系统中的工具可以直接复用，无需重新安装。需要覆盖默认查找位置时，可通过 `VST_FFMPEG_PATH`、`VST_FFPROBE_PATH`、`VST_YTDLP_PATH`、`VST_PYTHON_PATH` 指定可执行文件。
+安装脚本与源码运行都需要 .NET 10 SDK。安装脚本会把 `zimu` 与短名 `zm` 装进用户 `PATH`，详见[安装 zimu 与 zm 命令](#安装-zimu-与-zm-命令)；还没安装命令时见[从源码运行](#从源码运行还没安装时)。
 
-从仓库根目录检查实际任务需要的依赖：
+```powershell
+# Windows（PowerShell）
+.\VideoSubtitleTranslator\scripts\install.ps1
+```
 
 ```sh
-dotnet run --project VideoSubtitleTranslator -- doctor download   # 只检查下载器
-dotnet run --project VideoSubtitleTranslator -- doctor translate  # 检查翻译配置、媒体工具、Python/Whisper 和 LLM 环境变量
+# macOS / Linux
+./VideoSubtitleTranslator/scripts/install.sh
+```
+
+安装后重新打开终端让 PATH 生效。按任务运行对应的依赖检查；已安装在系统中的工具可以直接复用，无需重新安装。需要覆盖默认查找位置时，可通过 `VST_FFMPEG_PATH`、`VST_FFPROBE_PATH`、`VST_YTDLP_PATH`、`VST_PYTHON_PATH` 指定可执行文件。
+
+```sh
+zimu doctor download   # 只检查下载器
+zimu doctor translate  # 检查翻译配置、媒体工具、Python/Whisper 和 LLM 环境变量
 ```
 
 macOS 可用 Homebrew 安装缺少的系统工具：
@@ -35,15 +45,16 @@ export VST_PYTHON_PATH="$PWD/VideoSubtitleTranslator/PythonScripts/venv/bin/pyth
 cp VideoSubtitleTranslator/.env.example VideoSubtitleTranslator/.env
 ```
 
-在本地 `.env` 或 shell 中设置 `DEEPSEEK_API_KEY`。不要把凭据写入命令历史或提交到仓库。`zimu` 与短名 `zm` 需要先按下方[安装命令](#安装-zimu-与-zm-命令)放进 `PATH`；未安装时也可以在仓库根目录用 `dotnet run --project VideoSubtitleTranslator -- ...` 运行。
+在本地 `.env` 或 shell 中设置 `DEEPSEEK_API_KEY`。不要把凭据写入命令历史或提交到仓库。
 
 ```sh
-dotnet run --project VideoSubtitleTranslator -- translate "<视频链接或本地路径>"
-dotnet run --project VideoSubtitleTranslator -- download "<视频链接>"
-dotnet run --project VideoSubtitleTranslator -- doctor translate
+zimu translate "<视频链接或本地路径>"
+zimu translate "<视频链接或本地路径>" --mode meme
+zimu download "<视频链接>"
+zimu doctor translate
 ```
 
-需要直接输入 `zimu` 或 `zm` 时，用下方的安装脚本把它们加入 `PATH`。单独运行 `zimu` 或 `zm` 会打开命令行引导界面。`translate` 需要 FFmpeg/ffprobe、Python/Whisper、翻译配置和 LLM 凭据；URL 输入还会下载视频，因此也需要 `yt-dlp` 和网络。本地视频翻译不需要 `yt-dlp`。`download` 只需要翻译配置、`yt-dlp` 和网络（需要登录的网站可配置 cookies），不需要 Python、Whisper、FFmpeg 或 LLM 凭据。
+`zm` 与 `zimu` 完全等效。单独运行 `zimu` 或 `zm` 会打开命令行引导界面。`translate` 需要 FFmpeg/ffprobe、Python/Whisper、翻译配置和 LLM 凭据；URL 输入还会下载视频，因此也需要 `yt-dlp` 和网络。本地视频翻译不需要 `yt-dlp`。`download` 只需要翻译配置、`yt-dlp` 和网络（需要登录的网站可配置 cookies），不需要 Python、Whisper、FFmpeg 或 LLM 凭据。
 
 ## 手动发布（不使用安装脚本时）
 
@@ -94,6 +105,7 @@ zimu
 
 ```sh
 zimu translate <视频链接或本地路径>
+zimu download <视频链接>
 zm --help
 ```
 
@@ -135,11 +147,14 @@ Windows 可运行仓库提供的安装脚本准备外部工具和 Python 依赖�
 # 安装 yt-dlp、ffmpeg，并创建 Python 虚拟环境、安装 Whisper 依赖
 .\VideoSubtitleTranslator\scripts\setup_windows.ps1
 
+# 安装 zimu 与 zm 命令（安装后重新打开 PowerShell 让 PATH 生效）
+.\VideoSubtitleTranslator\scripts\install.ps1
+
 # 创建本机配置文件，然后在编辑器中设置所需环境变量
 Copy-Item .\VideoSubtitleTranslator\.env.example .\VideoSubtitleTranslator\.env
 
 # 启动本地浏览器工作台
-dotnet run --project VideoSubtitleTranslator -- --web
+zimu --web
 ```
 
 打开 <http://127.0.0.1:5155>。`.env` 至少需要配置 `DEEPSEEK_API_KEY`。若没有使用 cookies 文件，请从 `.env` 中删除或注释 `COOKIES_FILE` 示例行。
@@ -175,33 +190,33 @@ docker compose up --build
 
 ## 命令行用法
 
-命令行可处理在线视频或本地视频。先按“快速开始”准备对应任务所需的依赖，然后从仓库根目录运行：
+命令行可处理在线视频或本地视频。先按“快速开始”安装 `zimu`/`zm` 并准备对应任务所需的依赖，然后运行：
 
 ```powershell
 # 通用翻译模式（默认）
-dotnet run --project VideoSubtitleTranslator -- translate "<视频链接或本地视频路径>"
+zimu translate "<视频链接或本地视频路径>"
 
 # Meme 模式：口语化翻译并生成文化注释
-dotnet run --project VideoSubtitleTranslator -- translate "<视频链接或本地视频路径>" --mode meme
+zimu translate "<视频链接或本地视频路径>" --mode meme
 
 # 指定输出根目录
-dotnet run --project VideoSubtitleTranslator -- translate "<视频链接或本地视频路径>" --workspace "D:\VideoTranslations"
+zimu translate "<视频链接或本地视频路径>" --workspace "D:\VideoTranslations"
 
 # 可选：生成双语 SRT 或烧录中文字幕视频
-dotnet run --project VideoSubtitleTranslator -- translate "<视频链接或本地视频路径>" --bilingual --burn
+zimu translate "<视频链接或本地视频路径>" --bilingual --burn
 
 # 单独下载在线视频
-dotnet run --project VideoSubtitleTranslator -- download "<视频链接>"
+zimu download "<视频链接>"
 
 # 只给已完成的任务补烧录字幕（不重新下载/转录/翻译）
-dotnet run --project VideoSubtitleTranslator -- burn <任务ID>
+zimu burn <任务ID>
 
 # 检查下载或翻译依赖
-dotnet run --project VideoSubtitleTranslator -- doctor download
-dotnet run --project VideoSubtitleTranslator -- doctor translate
+zimu doctor download
+zimu doctor translate
 ```
 
-macOS/Linux 命令相同，只需将 PowerShell 示例中的 Windows 输出路径换成 Unix 路径。
+macOS/Linux 命令相同，只需将 PowerShell 示例中的 Windows 输出路径换成 Unix 路径；`zimu` 也可替换为 `zm`。还没安装命令时，见[从源码运行](#从源码运行还没安装时)。
 
 发布命令为 `zimu`，也可用短名 `zm`。完整参数格式：
 
@@ -290,3 +305,13 @@ node --test tests/pages-demo.test.mjs
 ```
 
 本地工作台前端源码位于 `WebClient/`（Vue 3、TypeScript、Vite）；`VideoSubtitleTranslator/Web/` 是供 .NET 服务托管的生成文件。GitHub Pages 静态演示独立位于 `docs/`。
+
+### 从源码运行（还没安装时）
+
+没有安装 `zimu`/`zm` 时，可在仓库根目录用 `dotnet run` 运行同样的命令：
+
+```sh
+dotnet run --project VideoSubtitleTranslator -- translate "<视频链接或本地路径>"
+dotnet run --project VideoSubtitleTranslator -- download "<视频链接>"
+dotnet run --project VideoSubtitleTranslator -- doctor translate
+```
