@@ -8,9 +8,17 @@ This context covers a local video-subtitle translation workbench and its public,
 A durable local request to turn one uploaded English MP4 into reviewed subtitles and one or more exported videos.
 _Avoid_: Job, upload
 
+**CLI Task**:
+A durable local request to turn one video URL or local video file into translated subtitles that can be resumed from the terminal.
+_Avoid_: Job, queue item
+
 **Stage Checkpoint**:
-A verified record that one Workbench Task stage and its artifact completed successfully, used to resume without repeating earlier work.
+A verified record that one Task stage and its Stage Artifact completed successfully, used to resume without repeating earlier work.
 _Avoid_: Cache, progress marker
+
+**Stage Artifact**:
+The file a pipeline stage produces as its own output and owns exclusively.
+_Avoid_: Intermediate file, cache
 
 **Subtitle Revision**:
 An immutable, incrementing version of a Workbench Task's editable subtitle document.
